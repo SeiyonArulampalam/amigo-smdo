@@ -1,0 +1,82 @@
+
+%%% Preamble Requirements %%%
+% \usepackage{geometry}
+% \usepackage{amsfonts}
+% \usepackage{amsmath}
+% \usepackage{amssymb}
+% \usepackage{tikz}
+
+% Optional packages such as sfmath set through python interface
+% \usepackage{}
+
+% \usetikzlibrary{arrows,chains,positioning,scopes,shapes.geometric,shapes.misc,shadows}
+
+%%% End Preamble Requirements %%%
+
+\input{"/Users/seiyonarulampalam/venvs/amigo_env/lib/python3.13/site-packages/pyxdsm/diagram_styles"}
+\begin{tikzpicture}
+
+\matrix[MatrixSetup]{
+%Row 0
+\node [DataIO] (output_Stator_Geometry) {$\text{Design Variables}$};&
+&
+&
+\node [DataIO] (output_Motor_Sizing_Equation) {$\text{Requirements}$};&
+&
+\\
+%Row 1
+\node [Function] (Stator_Geometry) {$\text{Stator Geometry}$};&
+\node [DataInter] (Stator_Geometry-Steinmetz) {$f,B,V_{\text{Fe}}$};&
+&
+&
+&
+\\
+%Row 2
+&
+\node [Function] (Steinmetz) {$\text{Steinmetz Equation}$};&
+\node [DataInter] (Steinmetz-Thermal) {$P_{\text{Fe}}$};&
+&
+&
+\\
+%Row 3
+&
+&
+\node [Function] (Thermal) {$\text{Thermal Resistance Network}$};&
+\node [DataInter] (Thermal-Motor_Sizing_Equation) {$P_{Cu},A$};&
+&
+\\
+%Row 4
+&
+&
+&
+\node [Function] (Motor_Sizing_Equation) {$\text{Motor Sizing Equation}$};&
+&
+\node [DataIO] (right_output_Motor_Sizing_Equation) {$P_{out}$};\\
+%Row 5
+&
+&
+&
+&
+&
+\\
+};
+
+% XDSM process chains
+
+
+\begin{pgfonlayer}{data}
+\path
+% Horizontal edges
+(Stator_Geometry) edge [DataLine] (Stator_Geometry-Steinmetz)
+(Steinmetz) edge [DataLine] (Steinmetz-Thermal)
+(Thermal) edge [DataLine] (Thermal-Motor_Sizing_Equation)
+(Motor_Sizing_Equation) edge [DataLine] (right_output_Motor_Sizing_Equation)
+% Vertical edges
+(Stator_Geometry-Steinmetz) edge [DataLine] (Steinmetz)
+(Steinmetz-Thermal) edge [DataLine] (Thermal)
+(Thermal-Motor_Sizing_Equation) edge [DataLine] (Motor_Sizing_Equation)
+(Stator_Geometry) edge [DataLine] (output_Stator_Geometry)
+(Motor_Sizing_Equation) edge [DataLine] (output_Motor_Sizing_Equation);
+\end{pgfonlayer}
+
+\end{tikzpicture}

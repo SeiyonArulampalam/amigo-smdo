@@ -1,0 +1,81 @@
+
+%%% Preamble Requirements %%%
+% \usepackage{geometry}
+% \usepackage{amsfonts}
+% \usepackage{amsmath}
+% \usepackage{amssymb}
+% \usepackage{tikz}
+
+% Optional packages such as sfmath set through python interface
+% \usepackage{}
+
+% \usetikzlibrary{arrows,chains,positioning,scopes,shapes.geometric,shapes.misc,shadows}
+
+%%% End Preamble Requirements %%%
+
+\input{"/Users/seiyonarulampalam/venvs/amigo_env/lib/python3.13/site-packages/pyxdsm/diagram_styles"}
+\begin{tikzpicture}
+
+\matrix[MatrixSetup]{
+%Row 0
+\node [DataIO] (output_morph) {$\text{Design Variables}$};&
+&
+&
+&
+&
+\\
+%Row 1
+\node [Function] (morph) {$\text{Mesh Morph FEA}$};&
+\node [DataInter] (morph-maxwell) {$\text{Node Coords.}$};&
+&
+&
+&
+\\
+%Row 2
+&
+\node [Function] (maxwell) {$\text{Maxwell FEA}$};&
+\node [DataInter] (maxwell-flux) {$\text{Magnetic Potential (A)}$};&
+&
+&
+\\
+%Row 3
+&
+&
+\node [Function] (flux) {$\text{Flux}$};&
+\node [DataInter] (flux-performance) {$\text{Magnetic Field (B)}$};&
+&
+\\
+%Row 4
+&
+&
+&
+\node [Function] (performance) {$\text{Performance}$};&
+&
+\node [DataIO] (right_output_performance) {$\eta, P_{out}, \tau$};\\
+%Row 5
+&
+&
+&
+&
+&
+\\
+};
+
+% XDSM process chains
+
+
+\begin{pgfonlayer}{data}
+\path
+% Horizontal edges
+(morph) edge [DataLine] (morph-maxwell)
+(maxwell) edge [DataLine] (maxwell-flux)
+(flux) edge [DataLine] (flux-performance)
+(performance) edge [DataLine] (right_output_performance)
+% Vertical edges
+(morph-maxwell) edge [DataLine] (maxwell)
+(maxwell-flux) edge [DataLine] (flux)
+(flux-performance) edge [DataLine] (performance)
+(morph) edge [DataLine] (output_morph);
+\end{pgfonlayer}
+
+\end{tikzpicture}
