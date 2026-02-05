@@ -23,6 +23,7 @@ import compute_forces as compute_forces
 import compute_losses
 import matplotlib.ticker as ticker
 import compute_mass
+from pathlib import Path
 
 try:
     from mpi4py import MPI
@@ -1717,18 +1718,11 @@ if 1 < slide_number:
 #####################
 # Build module
 if args.build:
-    compile_args = []
-    link_args = ["-lblas", "-llapack"]
-    define_macros = []
-    if args.use_openmp:
-        compile_args = ["-fopenmp"]
-        link_args += ["-fopenmp"]
-        define_macros = [("AMIGO_USE_OPENMP", "1")]
-
-    model.build_module()
+    source_dir = Path(__file__).resolve().parent
+    model.build_module(source_dir=source_dir)
 
 # Initialize the model
-model.initialize()
+model.initialize(comm=COMM_WORLD)
 
 # Compute current in each winding phase
 phase1, phase2, phase3 = motor_controller.phase_currents(
