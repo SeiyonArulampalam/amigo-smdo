@@ -256,7 +256,7 @@ class DirichletBcNode7x(am.Component):
         return
 
 
-class DirichletBcNode5x(am.Component):
+class DirichletBcNode4x(am.Component):
     def __init__(self):
         super().__init__()
         self.add_input("dx", value=1.0)

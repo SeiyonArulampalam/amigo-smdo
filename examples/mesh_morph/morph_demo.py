@@ -87,7 +87,7 @@ model = am.Model(module_name=module_name)
 truss_x = fea_comps.PDE1Dx()
 node_src_truss_x = fea_comps.NodeSourceTruss_x()
 node7x_dirichlet = fea_comps.DirichletBcNode7x()
-node5x_dirichlet = fea_comps.DirichletBcNode5x()
+node4x_dirichlet = fea_comps.DirichletBcNode4x()
 
 # Add component for line 8
 model.add_component(
@@ -111,9 +111,9 @@ model.add_component(
 )
 
 model.add_component(
-    name="n5x_dirichlet",
+    name="n4x_dirichlet",
     size=1,
-    comp_obj=node5x_dirichlet,
+    comp_obj=node4x_dirichlet,
 )
 
 # Link objects
@@ -142,7 +142,7 @@ for i in range(edge8.shape[0]):
 
 # Link BC
 model.link("node_src_line8_x.dx", "n7x_dirichlet.dx", src_indices=[0])
-model.link("node_src_line8_x.dx", "n5x_dirichlet.dx", src_indices=[-1])
+model.link("node_src_line8_x.dx", "n4x_dirichlet.dx", src_indices=[-1])
 
 # Build module
 if args.build:
