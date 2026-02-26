@@ -85,9 +85,43 @@ model = am.Model(module_name=module_name)
 
 # Add physics components
 truss_x = fea_comps.PDE1Dx()
+truss_y = fea_comps.PDE1Dy()
 node_src_truss_x = fea_comps.NodeSourceTruss_x()
+node_src_truss_y = fea_comps.NodeSourceTruss_y()
 node7x_dirichlet = fea_comps.DirichletBcNode7x()
 node4x_dirichlet = fea_comps.DirichletBcNode4x()
+node4y_dirichlet = fea_comps.DirichletBcNode4y()
+node5y_dirichlet = fea_comps.DirichletBcNode5y()
+
+# Add component for line 5
+model.add_component(
+    name="pde_line5",
+    size=edge5.shape[0],
+    comp_obj=truss_y,
+)
+
+model.add_component(
+    name="node_src_line5_y",
+    size=edge5.shape[0] + 1,  # Number of nodes on edge 8
+    comp_obj=node_src_truss_y,
+)
+model.add_component(
+    name="n4y_dirichlet",
+    size=1,
+    comp_obj=node4y_dirichlet,
+)
+model.add_component(
+    name="n5y_dirichlet",
+    size=1,
+    comp_obj=node5y_dirichlet,
+)
+
+for i in range(edge5.shape[0]):
+    model.link(f"pde_line5.y_coord[{i}]", f"node_src_line5_y.y_coord[{i}:{i+2}]")
+    model.link(f"pde_line5.dy[{i}]", f"node_src_line5_y.dy[[{i},{i+1}]]")
+
+model.link("node_src_line5_y.dy", "n4y_dirichlet.dy", src_indices=[0])
+model.link("node_src_line5_y.dy", "n5y_dirichlet.dy", src_indices=[-1])
 
 # Add component for line 8
 model.add_component(
@@ -117,28 +151,9 @@ model.add_component(
 )
 
 # Link objects
-# print(edge8)
-# print(X[edge8, 0])
-# print(np.unique(X[edge8], 0, sorted=False))
-l = np.unique(X[edge8, 0], sorted=False)
 for i in range(edge8.shape[0]):
-    # Loop through each element and link x_coord
-    # print(f"loop{i}:", X[edge8, 0][i])
-    # print(l[i], l[i+1])
-    # print(l[i : i + 2])
     model.link(f"pde_line8.x_coord[{i}]", f"node_src_line8_x.x_coord[{i}:{i+2}]")
     model.link(f"pde_line8.dx[{i}]", f"node_src_line8_x.dx[[{i},{i+1}]]")
-
-# c = [
-#     [0, 1],
-#     [1, 2],
-#     [2, 3],
-#     [3, 4],
-#     [4, 5],
-#     [5, 6],
-#     [6, 7],
-# ]
-# model.link(f"pde_line8.dx", f"node_src_line8_x.dx", tgt_indices=c)
 
 # Link BC
 model.link("node_src_line8_x.dx", "n7x_dirichlet.dx", src_indices=[0])
@@ -151,9 +166,34 @@ if args.build:
 # Initialize the model
 model.initialize()
 
+# Store the original x,y coords of the nodes
+node7_coords = X[7]
+node4_coords = X[4]
+node5_coords = X[5]
+node6_coords = X[6]
+
+# Define new locations for the nodes
+line5_x_val = 1.2
+line7_x_val = -1.2
+line6_y_val = 1.2
+line8_y_val = -1.2
+
+# Define the y offset for lines 8 amd 6
+y_offset_line8 = line8_y_val + 1.0
+y_offset_line6 = line6_y_val - 1.0
+
+# Define the x offset for lines 5 amd 7
+x_offset_line5 = line5_x_val - 1.0
+x_offset_line7 = line7_x_val + 1.0
+
 # Set the problem data
 data = model.get_data_vector()
 data["node_src_line8_x.x_coord"] = np.unique(X[edge8, 0], sorted=False)
+data["node_src_line5_y.y_coord"] = np.unique(X[edge5, 1], sorted=False)
+data["n7x_dirichlet.val"] = line7_x_val
+data["n4x_dirichlet.val"] = line5_x_val
+data["n4y_dirichlet.val"] = line8_y_val
+data["n5y_dirichlet.val"] = line6_y_val
 problem = model.get_problem()
 mat = problem.create_matrix()
 
@@ -166,7 +206,7 @@ rhs = problem.create_vector()
 problem.hessian(alpha, x, mat)
 problem.gradient(alpha, x, g)
 csr_mat = am.tocsr(mat)
-print(csr_mat.todense())
+# print(csr_mat.todense())
 
 # Plot matrix
 # plot_matrix(csr_mat.todense())
@@ -175,17 +215,28 @@ print(csr_mat.todense())
 # Solve the problem
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
-vals = ans_local.get_array()[model.get_indices("pde_line8.dx")]
-print(vals)
+line8_x_vals = ans_local.get_array()[model.get_indices("pde_line8.dx")].flatten()
+line5_y_vals = ans_local.get_array()[model.get_indices("pde_line5.dy")].flatten()
 
 # Plot before and after
 fig, ax = plt.subplots()
-baseline_x = np.unique(X[edge8, 0], sorted=False)
-morph_x = np.unique(vals, sorted=False)
-y_vals = -1 * np.ones(8)
-dy = -0.1  #! Forced constant shift in y
-ax.plot(baseline_x, y_vals, "ko-", label="Baseline")
-ax.plot(morph_x, y_vals + dy, "bx--", label="Morph")
+
+line8_xcoords = X[edge8.flatten(), 0]
+line8_ycoords = X[edge8.flatten(), 1]
+line5_xcoords = X[edge5.flatten(), 0]
+line5_ycoords = X[edge5.flatten(), 1]
+line6_xcoords = X[edge6.flatten(), 0]
+line6_ycoords = X[edge6.flatten(), 1]
+line7_xcoords = X[edge7.flatten(), 0]
+line7_ycoords = X[edge7.flatten(), 1]
+ax.plot(line8_xcoords, line8_ycoords, "ko--", label="Line 8")
+ax.plot(line5_xcoords, line5_ycoords, "ro--", label="Line 5")
+ax.plot(line6_xcoords, line6_ycoords, "go--", label="Line 6")
+ax.plot(line7_xcoords, line7_ycoords, "bo--", label="Line 7")
+
+ax.plot(line8_x_vals, line8_ycoords + y_offset_line8, "o-", label="Line 8 (new)")
+ax.plot(line5_xcoords + x_offset_line5, line5_y_vals, "o-", label="Line 5 (new)")
+
 ax.legend()
 plt.savefig("demo.jpg", dpi=500)
-plt.show()
+# plt.show()
