@@ -128,17 +128,18 @@ for i in range(edge8.shape[0]):
     # print(l[i], l[i+1])
     # print(l[i : i + 2])
     model.link(f"truss_line8.x_coord[{i}]", f"node_src_x.x_coord[{i}:{i+2}]")
+    model.link(f"truss_line8.dx[{i}]", f"node_src_x.dx[[{i},{i+1}]]")
 
-c = [
-    [0, 1],
-    [1, 2],
-    [2, 3],
-    [3, 4],
-    [4, 5],
-    [5, 6],
-    [6, 7],
-]
-model.link(f"truss_line8.dx", f"node_src_x.dx", tgt_indices=c)
+# c = [
+#     [0, 1],
+#     [1, 2],
+#     [2, 3],
+#     [3, 4],
+#     [4, 5],
+#     [5, 6],
+#     [6, 7],
+# ]
+# model.link(f"truss_line8.dx", f"node_src_x.dx", tgt_indices=c)
 
 # Link BC
 model.link("node_src_x.dx", "n1_dirichlet.dx", src_indices=[0])
@@ -183,6 +184,9 @@ fig, ax = plt.subplots()
 baseline_x = np.unique(X[edge8, 0], sorted=False)
 morph_x = np.unique(vals, sorted=False)
 y_vals = -1 * np.ones(8)
+dy = -0.1 #! Forced constant shift in y
 ax.plot(baseline_x, y_vals, "ko-", label="Baseline")
-ax.plot(morph_x, y_vals, "bx--", label="Morph")
-plt.show()
+ax.plot(morph_x, y_vals+dy, "bx--", label="Morph")
+ax.legend()
+plt.savefig("demo.jpg", dpi=500)
+# plt.show()
