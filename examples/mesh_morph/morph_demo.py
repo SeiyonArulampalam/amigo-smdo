@@ -86,35 +86,34 @@ model = am.Model(module_name=module_name)
 # Add physics components
 truss_x = fea_comps.PDE1Dx()
 node_src_truss_x = fea_comps.NodeSourceTruss_x()
-node1_dirichlet = fea_comps.DirichletBcNode1()
-node2_dirichlet = fea_comps.DirichletBcNode2()
+node7x_dirichlet = fea_comps.DirichletBcNode7x()
+node5x_dirichlet = fea_comps.DirichletBcNode5x()
 
 # Add component for line 8
-# print(edge8.shape[0])
 model.add_component(
     name="pde_line8",
     size=edge8.shape[0],  # Number of elements on edge 8
     comp_obj=truss_x,
 )
 
-# Define a global node source component
+# Define the node source for line8 dx morph
 model.add_component(
-    name="node_src_x",
+    name="node_src_line8_x",
     size=edge8.shape[0] + 1,  # Number of nodes on edge 8
     comp_obj=node_src_truss_x,
 )
 
-# Define dirichlet BC
+# Define dirichlet BC for line 8
 model.add_component(
-    name="n1_dirichlet",
+    name="n7x_dirichlet",
     size=1,
-    comp_obj=node1_dirichlet,
+    comp_obj=node7x_dirichlet,
 )
 
 model.add_component(
-    name="n2_dirichlet",
+    name="n5x_dirichlet",
     size=1,
-    comp_obj=node2_dirichlet,
+    comp_obj=node5x_dirichlet,
 )
 
 # Link objects
@@ -127,8 +126,8 @@ for i in range(edge8.shape[0]):
     # print(f"loop{i}:", X[edge8, 0][i])
     # print(l[i], l[i+1])
     # print(l[i : i + 2])
-    model.link(f"truss_line8.x_coord[{i}]", f"node_src_x.x_coord[{i}:{i+2}]")
-    model.link(f"truss_line8.dx[{i}]", f"node_src_x.dx[[{i},{i+1}]]")
+    model.link(f"pde_line8.x_coord[{i}]", f"node_src_line8_x.x_coord[{i}:{i+2}]")
+    model.link(f"pde_line8.dx[{i}]", f"node_src_line8_x.dx[[{i},{i+1}]]")
 
 # c = [
 #     [0, 1],
@@ -139,11 +138,11 @@ for i in range(edge8.shape[0]):
 #     [5, 6],
 #     [6, 7],
 # ]
-# model.link(f"pde_line8.dx", f"node_src_x.dx", tgt_indices=c)
+# model.link(f"pde_line8.dx", f"node_src_line8_x.dx", tgt_indices=c)
 
 # Link BC
-model.link("node_src_x.dx", "n1_dirichlet.dx", src_indices=[0])
-model.link("node_src_x.dx", "n2_dirichlet.dx", src_indices=[-1])
+model.link("node_src_line8_x.dx", "n7x_dirichlet.dx", src_indices=[0])
+model.link("node_src_line8_x.dx", "n5x_dirichlet.dx", src_indices=[-1])
 
 # Build module
 if args.build:
@@ -154,7 +153,7 @@ model.initialize()
 
 # Set the problem data
 data = model.get_data_vector()
-data["node_src_x.x_coord"] = np.unique(X[edge8, 0], sorted=False)
+data["node_src_line8_x.x_coord"] = np.unique(X[edge8, 0], sorted=False)
 problem = model.get_problem()
 mat = problem.create_matrix()
 
@@ -184,9 +183,9 @@ fig, ax = plt.subplots()
 baseline_x = np.unique(X[edge8, 0], sorted=False)
 morph_x = np.unique(vals, sorted=False)
 y_vals = -1 * np.ones(8)
-dy = -0.1 #! Forced constant shift in y
+dy = -0.1  #! Forced constant shift in y
 ax.plot(baseline_x, y_vals, "ko-", label="Baseline")
-ax.plot(morph_x, y_vals+dy, "bx--", label="Morph")
+ax.plot(morph_x, y_vals + dy, "bx--", label="Morph")
 ax.legend()
 plt.savefig("demo.jpg", dpi=500)
-# plt.show()
+plt.show()

@@ -243,7 +243,7 @@ class NodeSourceTruss_y(am.Component):
         return
 
 
-class DirichletBcNode1(am.Component):
+class DirichletBcNode7x(am.Component):
     def __init__(self):
         super().__init__()
         self.add_input("dx", value=1.0)
@@ -256,7 +256,7 @@ class DirichletBcNode1(am.Component):
         return
 
 
-class DirichletBcNode2(am.Component):
+class DirichletBcNode5x(am.Component):
     def __init__(self):
         super().__init__()
         self.add_input("dx", value=1.0)
