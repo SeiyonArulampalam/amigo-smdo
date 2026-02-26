@@ -3,7 +3,7 @@ import triangle_basis
 import line_basis
 
 
-class Truss1Dx(am.Component):
+class PDE1Dx(am.Component):
     def __init__(self):
         super().__init__()
 

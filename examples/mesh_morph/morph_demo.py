@@ -84,7 +84,7 @@ module_name = "morph"
 model = am.Model(module_name=module_name)
 
 # Add physics components
-truss_x = fea_comps.Truss1Dx()
+truss_x = fea_comps.PDE1Dx()
 node_src_truss_x = fea_comps.NodeSourceTruss_x()
 node1_dirichlet = fea_comps.DirichletBcNode1()
 node2_dirichlet = fea_comps.DirichletBcNode2()
@@ -92,7 +92,7 @@ node2_dirichlet = fea_comps.DirichletBcNode2()
 # Add component for line 8
 # print(edge8.shape[0])
 model.add_component(
-    name="truss_line8",
+    name="pde_line8",
     size=edge8.shape[0],  # Number of elements on edge 8
     comp_obj=truss_x,
 )
@@ -139,7 +139,7 @@ for i in range(edge8.shape[0]):
 #     [5, 6],
 #     [6, 7],
 # ]
-# model.link(f"truss_line8.dx", f"node_src_x.dx", tgt_indices=c)
+# model.link(f"pde_line8.dx", f"node_src_x.dx", tgt_indices=c)
 
 # Link BC
 model.link("node_src_x.dx", "n1_dirichlet.dx", src_indices=[0])
@@ -176,7 +176,7 @@ print(csr_mat.todense())
 # Solve the problem
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
-vals = ans_local.get_array()[model.get_indices("truss_line8.dx")]
+vals = ans_local.get_array()[model.get_indices("pde_line8.dx")]
 print(vals)
 
 # Plot before and after
