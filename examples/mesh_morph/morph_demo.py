@@ -293,10 +293,11 @@ csr_mat = am.tocsr(mat)
 # Solve the problem
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
-line8_x_vals = ans_local.get_array()[model.get_indices("pde_line8.dx")].flatten()
-line5_y_vals = ans_local.get_array()[model.get_indices("pde_line5.dy")].flatten()
-line6_x_vals = ans_local.get_array()[model.get_indices("pde_line6.dx")].flatten()
-line7_y_vals = ans_local.get_array()[model.get_indices("pde_line7.dy")].flatten()
+line8_x_vals = ans_local.get_array()[model.get_indices("node_src_line8_x.dx")]
+line5_y_vals = ans_local.get_array()[model.get_indices("node_src_line5_y.dy")]
+line6_x_vals = ans_local.get_array()[model.get_indices("node_src_line6_x.dx")]
+line7_y_vals = ans_local.get_array()[model.get_indices("node_src_line7_y.dy")]
+
 
 # Plot before and after
 fig, ax = plt.subplots()
@@ -314,10 +315,36 @@ ax.plot(line5_xcoords, line5_ycoords, "ko--", label="Line 5")
 ax.plot(line6_xcoords, line6_ycoords, "ko--", label="Line 6")
 ax.plot(line7_xcoords, line7_ycoords, "ko--", label="Line 7")
 
-ax.plot(line8_x_vals, line8_ycoords + y_offset_line8, "ro-", label="Line 8 (new)")
-ax.plot(line5_xcoords + x_offset_line5, line5_y_vals, "ro-", label="Line 5 (new)")
-ax.plot(line6_x_vals, line6_ycoords + y_offset_line6, "ro-", label="Line 6 (new)")
-ax.plot(line7_xcoords + x_offset_line7, line7_y_vals, "ro-", label="Line 7 (new)")
+# Overwrite the coordinates that have a constant value
+# This enables plotting the solution field
+line8_ycoords = X[np.unique(edge8.flatten()), 1]
+line5_xcoords = X[np.unique(edge5.flatten()), 0]
+line6_ycoords = X[np.unique(edge6.flatten()), 1]
+line7_xcoords = X[np.unique(edge7.flatten()), 0]
+ax.plot(
+    line8_x_vals,
+    line8_ycoords + y_offset_line8,
+    "ro-",
+    label="Line 8 (new)",
+)
+ax.plot(
+    line5_xcoords + x_offset_line5,
+    line5_y_vals,
+    "ro-",
+    label="Line 5 (new)",
+)
+ax.plot(
+    line6_x_vals,
+    line6_ycoords + y_offset_line6,
+    "ro-",
+    label="Line 6 (new)",
+)
+ax.plot(
+    line7_xcoords + x_offset_line7,
+    line7_y_vals,
+    "ro-",
+    label="Line 7 (new)",
+)
 
 # ax.legend()
 plt.savefig("demo.jpg", dpi=500)
