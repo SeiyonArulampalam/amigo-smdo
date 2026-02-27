@@ -5,6 +5,7 @@ import argparse
 import amigo as am
 import matplotlib.pyplot as plt
 from scipy.sparse.linalg import spsolve
+import plot_mesh
 
 
 def plot_matrix(dense_mat):
@@ -96,6 +97,10 @@ node5x_dirichlet = fea_comps.DirichletBcNode7x()
 node6x_dirichlet = fea_comps.DirichletBcNode4x()
 node6y_dirichlet = fea_comps.DirichletBcNode6y()
 node7y_dirichlet = fea_comps.DirichletBcNode7y()
+ps = fea_comps.PlaneStress()
+ps_node_src = fea_comps.NodeSourceMorph()
+ps_dirichlet = fea_comps.DirichletBcMorph()
+
 
 # Add component for line 7
 model.add_component(
@@ -169,7 +174,7 @@ model.add_component(
 
 model.add_component(
     name="node_src_line5_y",
-    size=edge5.shape[0] + 1,  # Number of nodes on edge 8
+    size=edge5.shape[0] + 1,
     comp_obj=node_src_truss_y,
 )
 model.add_component(
@@ -226,6 +231,37 @@ for i in range(edge8.shape[0]):
 model.link("node_src_line8_x.dx", "n7x_dirichlet.dx", src_indices=[0])
 model.link("node_src_line8_x.dx", "n4x_dirichlet.dx", src_indices=[-1])
 
+# Plane stress model
+model.add_component("ps", nelems, ps)
+model.add_component("ps_node_src", nnodes, ps_node_src)
+model.add_component("ps_dirichlet", len(outer_bc_tags), ps_dirichlet)
+
+model.link("ps.x_coord", "ps_node_src.x_coord", tgt_indices=conn)
+model.link("ps.y_coord", "ps_node_src.y_coord", tgt_indices=conn)
+
+model.link("ps.u", "ps_node_src.u", tgt_indices=conn)
+model.link("ps.v", "ps_node_src.v", tgt_indices=conn)
+
+model.link("ps_node_src.u", "ps_dirichlet.dof", src_indices=outer_bc_tags)
+model.link("ps_node_src.v", "ps_dirichlet.dof", src_indices=outer_bc_tags)
+
+# dirichlet for line 5
+line5_node_tags = np.array(list(dict.fromkeys(edge5.flatten())))
+model.link("ps_node_src.v", "node_src_line5_y.dy", src_indices=line5_node_tags)
+
+# dirichlet for line 7
+line7_node_tags = np.array(list(dict.fromkeys(edge7.flatten())))
+model.link("ps_node_src.v", "node_src_line7_y.dy", src_indices=line7_node_tags)
+
+# dirichlet for line 8
+line8_node_tags = np.array(list(dict.fromkeys(edge8.flatten())))
+model.link("ps_node_src.u", "node_src_line8_x.dx", src_indices=line8_node_tags)
+
+# dirichlet for line 6
+line6_node_tags = np.array(list(dict.fromkeys(edge6.flatten())))
+model.link("ps_node_src.u", "node_src_line6_x.dx", src_indices=line6_node_tags)
+
+
 # Build module
 if args.build:
     model.build_module()
@@ -272,6 +308,11 @@ data["n6x_dirichlet.val"] = line7_x_val
 data["n6y_dirichlet.val"] = line6_y_val
 data["n7y_dirichlet.val"] = line8_y_val
 
+data["ps_node_src.x_coord"] = X[:, 0]
+data["ps_node_src.y_coord"] = X[:, 1]
+
+# data["line5_const_dirichlet.offset"] = x_offset_line5
+
 problem = model.get_problem()
 mat = problem.create_matrix()
 
@@ -298,54 +339,65 @@ line5_y_vals = ans_local.get_array()[model.get_indices("node_src_line5_y.dy")]
 line6_x_vals = ans_local.get_array()[model.get_indices("node_src_line6_x.dx")]
 line7_y_vals = ans_local.get_array()[model.get_indices("node_src_line7_y.dy")]
 
+# Extract result of the plane stress morph
+u = ans_local.get_array()[model.get_indices("ps_node_src.u")]
+v = ans_local.get_array()[model.get_indices("ps_node_src.v")]
+
+# Update the X
+X[:, 0] = X[:, 0] + u
+X[:, 1] = X[:, 1] + v
+
+# Plot the new mesh
+plot_mesh.plot_morph(X, [conn])
+plt.show()
 
 # Plot before and after
-fig, ax = plt.subplots()
+# fig, ax = plt.subplots()
 
-line8_xcoords = X[edge8.flatten(), 0]
-line8_ycoords = X[edge8.flatten(), 1]
-line5_xcoords = X[edge5.flatten(), 0]
-line5_ycoords = X[edge5.flatten(), 1]
-line6_xcoords = X[edge6.flatten(), 0]
-line6_ycoords = X[edge6.flatten(), 1]
-line7_xcoords = X[edge7.flatten(), 0]
-line7_ycoords = X[edge7.flatten(), 1]
-ax.plot(line8_xcoords, line8_ycoords, "ko--", label="Line 8")
-ax.plot(line5_xcoords, line5_ycoords, "ko--", label="Line 5")
-ax.plot(line6_xcoords, line6_ycoords, "ko--", label="Line 6")
-ax.plot(line7_xcoords, line7_ycoords, "ko--", label="Line 7")
+# line8_xcoords = X[edge8.flatten(), 0]
+# line8_ycoords = X[edge8.flatten(), 1]
+# line5_xcoords = X[edge5.flatten(), 0]
+# line5_ycoords = X[edge5.flatten(), 1]
+# line6_xcoords = X[edge6.flatten(), 0]
+# line6_ycoords = X[edge6.flatten(), 1]
+# line7_xcoords = X[edge7.flatten(), 0]
+# line7_ycoords = X[edge7.flatten(), 1]
+# ax.plot(line8_xcoords, line8_ycoords, "ko--", label="Line 8")
+# ax.plot(line5_xcoords, line5_ycoords, "ko--", label="Line 5")
+# ax.plot(line6_xcoords, line6_ycoords, "ko--", label="Line 6")
+# ax.plot(line7_xcoords, line7_ycoords, "ko--", label="Line 7")
 
-# Overwrite the coordinates that have a constant value
-# This enables plotting the solution field
-line8_ycoords = X[np.unique(edge8.flatten()), 1]
-line5_xcoords = X[np.unique(edge5.flatten()), 0]
-line6_ycoords = X[np.unique(edge6.flatten()), 1]
-line7_xcoords = X[np.unique(edge7.flatten()), 0]
-ax.plot(
-    line8_x_vals,
-    line8_ycoords + y_offset_line8,
-    "ro-",
-    label="Line 8 (new)",
-)
-ax.plot(
-    line5_xcoords + x_offset_line5,
-    line5_y_vals,
-    "ro-",
-    label="Line 5 (new)",
-)
-ax.plot(
-    line6_x_vals,
-    line6_ycoords + y_offset_line6,
-    "ro-",
-    label="Line 6 (new)",
-)
-ax.plot(
-    line7_xcoords + x_offset_line7,
-    line7_y_vals,
-    "ro-",
-    label="Line 7 (new)",
-)
+# # Overwrite the coordinates that have a constant value
+# # This enables plotting the solution field
+# line8_ycoords = X[np.unique(edge8.flatten()), 1]
+# line5_xcoords = X[np.unique(edge5.flatten()), 0]
+# line6_ycoords = X[np.unique(edge6.flatten()), 1]
+# line7_xcoords = X[np.unique(edge7.flatten()), 0]
+# ax.plot(
+#     line8_x_vals,
+#     line8_ycoords + y_offset_line8,
+#     "ro-",
+#     label="Line 8 (new)",
+# )
+# ax.plot(
+#     line5_xcoords + x_offset_line5,
+#     line5_y_vals,
+#     "ro-",
+#     label="Line 5 (new)",
+# )
+# ax.plot(
+#     line6_x_vals,
+#     line6_ycoords + y_offset_line6,
+#     "ro-",
+#     label="Line 6 (new)",
+# )
+# ax.plot(
+#     line7_xcoords + x_offset_line7,
+#     line7_y_vals,
+#     "ro-",
+#     label="Line 7 (new)",
+# )
 
-# ax.legend()
-plt.savefig("demo.jpg", dpi=500)
-# plt.show()
+# # ax.legend()
+# plt.savefig("demo.jpg", dpi=500)
+# # plt.show()

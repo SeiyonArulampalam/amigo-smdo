@@ -441,3 +441,46 @@ class DirichletBcNode7y(am.Component):
             self.inputs["dy"] + self.data["val"]
         ) * self.inputs["lam"]
         return
+
+
+class NodeSourceMorph(am.Component):
+    def __init__(self):
+        super().__init__()
+
+        # Mesh coordinates
+        self.add_data("x_coord")
+        self.add_data("y_coord")
+
+        # States
+        self.add_input("u")
+        self.add_input("v")
+        return
+
+
+class DirichletBcMorph(am.Component):
+    def __init__(self):
+        super().__init__()
+        self.add_input("dof", value=1.0)
+        self.add_input("lam", value=1.0)
+        self.add_objective("morph_obj")
+        return
+
+    def compute(self):
+        self.objective["morph_obj"] = (self.inputs["dof"]) * self.inputs["lam"]
+        return
+
+
+class DirichletBcMorphConstOffset(am.Component):
+    def __init__(self):
+        super().__init__()
+        self.add_input("dof", value=1.0)
+        self.add_input("lam", value=1.0)
+        self.add_data("offset", value=1.0)
+        self.add_objective("morph_obj")
+        return
+
+    def compute(self):
+        self.objective["morph_obj"] = (
+            self.inputs["dof"] + self.data["offset"]
+        ) * self.inputs["lam"]
+        return
