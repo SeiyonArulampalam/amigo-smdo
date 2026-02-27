@@ -3,6 +3,111 @@ import triangle_basis
 import line_basis
 
 
+class PlanarTruss(am.Component):
+    def __init__(self):
+        super().__init__()
+
+        # Data for this class
+        self.add_data("x_coord", shape=(2,))
+        self.add_data("y_coord", shape=(2,))
+
+        # Define materials constants
+        self.add_constant("E", value=1.0)
+        self.add_constant("A", value=1.0)
+
+        # Define inputs (what we want to solve)
+        self.add_input("u_truss", shape=(2,), value=0.0)
+        self.add_input("v_truss", shape=(2,), value=0.0)
+
+        # Define the objective
+        self.add_objective("morph_obj")
+        return
+
+    def compute(self):
+        # Extract inputs
+        u = self.inputs["u_truss"]
+        v = self.inputs["v_truss"]
+
+        # Extract materials
+        E = self.constants["E"]
+        A = self.constants["A"]
+
+        # Extract data
+        x = self.data["x_coord"]
+        y = self.data["y_coord"]
+
+        # Compute elemental K matrix
+        L = ((x[1] - x[0]) ** 2 + (y[1] - y[0]) ** 2) ** 0.5
+        coeff = E * A / L
+        C = (x[1] - x[0]) / L
+        S = (y[1] - y[0]) / L
+
+        K00 = C * C
+        K01 = C * S
+        K02 = -C * C
+        K03 = -C * S
+
+        K10 = C * S
+        K11 = S * S
+        K12 = -C * S
+        K13 = -S * S
+
+        K20 = -C * C
+        K21 = -C * S
+        K22 = C * C
+        K23 = C * S
+
+        K30 = -C * S
+        K31 = -S * S
+        K32 = C * S
+        K33 = S * S
+
+        # Residual: K*u
+        res = [
+            K00 * u[0] + K01 * v[0] + K02 * u[1] + K03 * v[1],
+            K10 * u[0] + K11 * v[0] + K12 * u[1] + K13 * v[1],
+            K20 * u[0] + K21 * v[0] + K22 * u[1] + K23 * v[1],
+            K30 * u[0] + K31 * v[0] + K32 * u[1] + K33 * v[1],
+        ]
+
+        # Energy
+        self.objective["morph_obj"] = 0.5 * (
+            res[0] * u[0] + res[1] * v[0] + res[2] * u[1] + res[3] * v[1]
+        )
+
+        return
+
+
+class NodeSourcePlanarTruss(am.Component):
+    def __init__(self):
+        super().__init__()
+
+        # Mesh coordinates
+        self.add_data("x_coord")
+        self.add_data("y_coord")
+
+        # States
+        self.add_input("u_truss")
+        self.add_input("v_truss")
+        return
+
+
+class DirichletBcPlanarTruss(am.Component):
+    def __init__(self):
+        super().__init__()
+        self.add_input("dof", value=1.0)
+        self.add_input("lam", value=1.0)
+        self.add_data("offset", value=1.0)
+        self.add_objective("morph_obj")
+        return
+
+    def compute(self):
+        self.objective["morph_obj"] = (
+            self.inputs["dof"] + self.data["offset"]
+        ) * self.inputs["lam"]
+        return
+
+
 class PDE1Dx(am.Component):
     def __init__(self):
         super().__init__()
