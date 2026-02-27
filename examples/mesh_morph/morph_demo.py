@@ -92,6 +92,41 @@ node7x_dirichlet = fea_comps.DirichletBcNode7x()
 node4x_dirichlet = fea_comps.DirichletBcNode4x()
 node4y_dirichlet = fea_comps.DirichletBcNode4y()
 node5y_dirichlet = fea_comps.DirichletBcNode5y()
+node5x_dirichlet = fea_comps.DirichletBcNode7x()
+node6x_dirichlet = fea_comps.DirichletBcNode4x()
+
+# Add component for line 6
+model.add_component(
+    name="pde_line6",
+    size=edge6.shape[0],
+    comp_obj=truss_x,
+)
+
+model.add_component(
+    name="node_src_line6_x",
+    size=edge6.shape[0] + 1,
+    comp_obj=node_src_truss_x,
+)
+
+model.add_component(
+    name="n5x_dirichlet",
+    size=1,
+    comp_obj=node5x_dirichlet,
+)
+
+model.add_component(
+    name="n6x_dirichlet",
+    size=1,
+    comp_obj=node6x_dirichlet,
+)
+
+for i in range(edge6.shape[0]):
+    model.link(f"pde_line6.x_coord[{i}]", f"node_src_line6_x.x_coord[{i}:{i+2}]")
+    model.link(f"pde_line6.dx[{i}]", f"node_src_line6_x.dx[[{i},{i+1}]]")
+
+model.link("node_src_line6_x.dx", "n5x_dirichlet.dx", src_indices=[0])
+model.link("node_src_line6_x.dx", "n6x_dirichlet.dx", src_indices=[-1])
+
 
 # Add component for line 5
 model.add_component(
@@ -190,10 +225,17 @@ x_offset_line7 = line7_x_val + 1.0
 data = model.get_data_vector()
 data["node_src_line8_x.x_coord"] = np.unique(X[edge8, 0], sorted=False)
 data["node_src_line5_y.y_coord"] = np.unique(X[edge5, 1], sorted=False)
+data["node_src_line6_x.x_coord"] = np.unique(X[edge6, 0], sorted=False)
+
 data["n7x_dirichlet.val"] = line7_x_val
 data["n4x_dirichlet.val"] = line5_x_val
+
 data["n4y_dirichlet.val"] = line8_y_val
 data["n5y_dirichlet.val"] = line6_y_val
+
+data["n5x_dirichlet.val"] = line5_x_val
+data["n6x_dirichlet.val"] = line7_x_val
+
 problem = model.get_problem()
 mat = problem.create_matrix()
 
@@ -217,6 +259,7 @@ ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
 line8_x_vals = ans_local.get_array()[model.get_indices("pde_line8.dx")].flatten()
 line5_y_vals = ans_local.get_array()[model.get_indices("pde_line5.dy")].flatten()
+line6_x_vals = ans_local.get_array()[model.get_indices("pde_line6.dx")].flatten()
 
 # Plot before and after
 fig, ax = plt.subplots()
@@ -236,6 +279,7 @@ ax.plot(line7_xcoords, line7_ycoords, "bo--", label="Line 7")
 
 ax.plot(line8_x_vals, line8_ycoords + y_offset_line8, "o-", label="Line 8 (new)")
 ax.plot(line5_xcoords + x_offset_line5, line5_y_vals, "o-", label="Line 5 (new)")
+ax.plot(line6_x_vals, line6_ycoords + y_offset_line6, "o-", label="Line 6 (new)")
 
 ax.legend()
 plt.savefig("demo.jpg", dpi=500)

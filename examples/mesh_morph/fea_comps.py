@@ -377,3 +377,35 @@ class DirichletBcNode5y(am.Component):
             self.inputs["dy"] + self.data["val"]
         ) * self.inputs["lam"]
         return
+
+
+class DirichletBcNode5x(am.Component):
+    def __init__(self):
+        super().__init__()
+        self.add_input("dx", value=1.0)
+        self.add_input("lam", value=1.0)
+        self.add_data("val")
+        self.add_objective("morph_obj")
+        return
+
+    def compute(self):
+        self.objective["morph_obj"] = (
+            self.inputs["dx"] + self.data["val"]
+        ) * self.inputs["lam"]
+        return
+
+
+class DirichletBcNode6x(am.Component):
+    def __init__(self):
+        super().__init__()
+        self.add_input("dx", value=1.0)
+        self.add_input("lam", value=1.0)
+        self.add_data("val")
+        self.add_objective("morph_obj")
+        return
+
+    def compute(self):
+        self.objective["morph_obj"] = (
+            self.inputs["dx"] + self.data["val"]
+        ) * self.inputs["lam"]
+        return
