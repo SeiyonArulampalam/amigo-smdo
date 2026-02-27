@@ -39,13 +39,16 @@ def plot_region(ax, X, conn_list, color, label=None):
         antialiaseds=False,  # ← disables smoothing between triangles
     )
     ax.add_collection(coll)
-    return
-
-
-def plot_morph(X, conn):
-    fig, ax = plt.subplots()
-    plot_region(ax, X, conn, color="#7BE7FF", label="Region 1")
+    ax.relim()
+    ax.autoscale_view()
     ax.set_aspect("equal")
-    fig.tight_layout()
-    plt.autoscale()
     return
+
+
+# def plot_morph(X, conn):
+#     fig, ax = plt.subplots()
+#     plot_region(ax, X, conn, color="#7BE7FF", label="Region 1")
+#     ax.set_aspect("equal")
+#     fig.tight_layout()
+#     plt.autoscale()
+#     return

@@ -243,6 +243,59 @@ for i in range(edge6.shape[0]):
 
 model.link("node_src_line_6.u_truss", "dirichlet_line_6_x.dof", src_indices=[0, -1])
 model.link("node_src_line_6.v_truss", "dirichlet_line_6_y.dof")
+
+# Define classes for the plane stress model
+ps = fea_comps.PlaneStress()
+ps_node_src = fea_comps.NodeSourceMorph()
+ps_dirichlet = fea_comps.DirichletBcMorph()
+
+# Plane stress components and links
+model.add_component("ps", nelems, ps)
+model.add_component("ps_node_src", nnodes, ps_node_src)
+model.add_component("ps_dirichlet", len(outer_bc_tags), ps_dirichlet)
+
+model.link("ps.x_coord", "ps_node_src.x_coord", tgt_indices=conn)
+model.link("ps.y_coord", "ps_node_src.y_coord", tgt_indices=conn)
+
+model.link("ps.u", "ps_node_src.u", tgt_indices=conn)
+model.link("ps.v", "ps_node_src.v", tgt_indices=conn)
+
+# Zero dirichlet BC for the outter boundary
+model.link("ps_node_src.u", "ps_dirichlet.dof", src_indices=outer_bc_tags)
+model.link("ps_node_src.v", "ps_dirichlet.dof", src_indices=outer_bc_tags)
+
+# Dirichlet for line 5
+model.link("ps_node_src.u", "node_src_line_5.u_truss", src_indices=line5_node_tags)
+model.link("ps_node_src.v", "node_src_line_5.v_truss", src_indices=line5_node_tags)
+
+# Dirichlet for line 7
+model.link("ps_node_src.u", "node_src_line_7.u_truss", src_indices=line7_node_tags)
+model.link("ps_node_src.v", "node_src_line_7.v_truss", src_indices=line7_node_tags)
+
+# Dirichlet for line 6 (Interior nodes only)
+model.link(
+    "ps_node_src.u",
+    f"node_src_line_6.u_truss[{1}:{-1}]",
+    src_indices=line6_node_tags[1:-1],
+)
+model.link(
+    "ps_node_src.v",
+    f"node_src_line_6.v_truss[{1}:{-1}]",
+    src_indices=line6_node_tags[1:-1],
+)
+
+# Dirichlet for line 8 (Interior nodes only)
+model.link(
+    "ps_node_src.u",
+    f"node_src_line_8.u_truss[{1}:{-1}]",
+    src_indices=line8_node_tags[1:-1],
+)
+model.link(
+    "ps_node_src.v",
+    f"node_src_line_8.v_truss[{1}:{-1}]",
+    src_indices=line8_node_tags[1:-1],
+)
+
 # Build module
 if args.build:
     model.build_module()
@@ -254,7 +307,7 @@ model.initialize()
 data = model.get_data_vector()
 
 # Define deltas you want in the inner mesh
-dx5_dx4 = 0.1  # Right edge displacment in x
+dx5_dx4 = 0.8  # Right edge displacment in x
 dy5_dy6 = 0.5  # Top edge displacement in y
 dx6_dx7 = -0.35  # Left edge displacement in x
 dy7_dy4 = -0.8  # Bottom edge displacxement in y
@@ -287,6 +340,9 @@ data["dirichlet_line_6_x.offset[0]"] = dx5_dx4
 data["dirichlet_line_6_x.offset[-1]"] = dx6_dx7
 data["dirichlet_line_6_y.offset[:]"] = dy5_dy6
 
+# Data for plane stress model
+data["ps_node_src.x_coord"] = X[:, 0]
+data["ps_node_src.y_coord"] = X[:, 1]
 
 # Setup the problem
 problem = model.get_problem()
@@ -308,42 +364,80 @@ csr_mat = am.tocsr(mat)
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
 
-# Extract solutions
-line7_u = ans_local.get_array()[model.get_indices("node_src_line_7.u_truss")]
-line7_v = ans_local.get_array()[model.get_indices("node_src_line_7.v_truss")]
+# # Extract solutions
+# line7_u = ans_local.get_array()[model.get_indices("node_src_line_7.u_truss")]
+# line7_v = ans_local.get_array()[model.get_indices("node_src_line_7.v_truss")]
 
-line5_u = ans_local.get_array()[model.get_indices("node_src_line_5.u_truss")]
-line5_v = ans_local.get_array()[model.get_indices("node_src_line_5.v_truss")]
+# line5_u = ans_local.get_array()[model.get_indices("node_src_line_5.u_truss")]
+# line5_v = ans_local.get_array()[model.get_indices("node_src_line_5.v_truss")]
 
-line8_u = ans_local.get_array()[model.get_indices("node_src_line_8.u_truss")]
-line8_v = ans_local.get_array()[model.get_indices("node_src_line_8.v_truss")]
+# line8_u = ans_local.get_array()[model.get_indices("node_src_line_8.u_truss")]
+# line8_v = ans_local.get_array()[model.get_indices("node_src_line_8.v_truss")]
 
-line6_u = ans_local.get_array()[model.get_indices("node_src_line_6.u_truss")]
-line6_v = ans_local.get_array()[model.get_indices("node_src_line_6.v_truss")]
+# line6_u = ans_local.get_array()[model.get_indices("node_src_line_6.u_truss")]
+# line6_v = ans_local.get_array()[model.get_indices("node_src_line_6.v_truss")]
 
-# Iniital coordinates for each line
-line7_x0 = X[line7_node_tags, 0]
-line7_y0 = X[line7_node_tags, 1]
+# # Iniital coordinates for each line
+# line7_x0 = X[line7_node_tags, 0]
+# line7_y0 = X[line7_node_tags, 1]
 
-line8_x0 = X[line8_node_tags, 0]
-line8_y0 = X[line8_node_tags, 1]
+# line8_x0 = X[line8_node_tags, 0]
+# line8_y0 = X[line8_node_tags, 1]
 
-line5_x0 = X[line5_node_tags, 0]
-line5_y0 = X[line5_node_tags, 1]
+# line5_x0 = X[line5_node_tags, 0]
+# line5_y0 = X[line5_node_tags, 1]
 
-line6_x0 = X[line6_node_tags, 0]
-line6_y0 = X[line6_node_tags, 1]
+# line6_x0 = X[line6_node_tags, 0]
+# line6_y0 = X[line6_node_tags, 1]
 
-# Plot
-fig, ax = plt.subplots()
+# # Plot
+# fig, ax = plt.subplots()
 
-ax.plot(line7_x0, line7_y0, "k-")
-ax.plot(line8_x0, line8_y0, "k-")
-ax.plot(line5_x0, line5_y0, "k-")
-ax.plot(line6_x0, line6_y0, "k-")
+# ax.plot(line7_x0, line7_y0, "k-")
+# ax.plot(line8_x0, line8_y0, "k-")
+# ax.plot(line5_x0, line5_y0, "k-")
+# ax.plot(line6_x0, line6_y0, "k-")
 
-ax.plot(line7_x0 + line7_u, line7_y0 + line7_v, "r-")
-ax.plot(line8_x0 + line8_u, line8_y0 + line8_v, "r-")
-ax.plot(line5_x0 + line5_u, line5_y0 + line5_v, "r-")
-ax.plot(line6_x0 + line6_u, line6_y0 + line6_v, "r-")
-plt.show()
+# ax.plot(line7_x0 + line7_u, line7_y0 + line7_v, "r-")
+# ax.plot(line8_x0 + line8_u, line8_y0 + line8_v, "r-")
+# ax.plot(line5_x0 + line5_u, line5_y0 + line5_v, "r-")
+# ax.plot(line6_x0 + line6_u, line6_y0 + line6_v, "r-")
+# ax.set_aspect("equal")
+
+# Plot the new and old mesh
+fig2, ax2 = plt.subplots(ncols=2, figsize=(10, 6))
+# OLD mesh
+X_old = X.copy()
+X_old[:, 0] -= 10
+utils.plot_region(ax2[0], X_old, [conn_surface1], color="#7BE7FF", label="Surface 1")
+utils.plot_region(ax2[0], X_old, [conn_surface2], color="#BF7BFF", label="Surface 2")
+ax2[0].set_title("Old Mesh")
+
+# NEW mesh
+u = ans_local.get_array()[model.get_indices("ps_node_src.u")]
+v = ans_local.get_array()[model.get_indices("ps_node_src.v")]
+X_new = X.copy()
+X_new[:, 0] += u
+X_new[:, 1] += v
+
+utils.plot_region(ax2[1], X_new, [conn_surface1], color="#7BE7FF", label="Surface 1")
+utils.plot_region(ax2[1], X_new, [conn_surface2], color="#BF7BFF", label="Surface 2")
+ax2[1].set_title("New Mesh")
+
+xmin_old = np.min(X_old[:, 0])
+xmax_old = np.max(X_old[:, 0])
+ymin_old = np.min(X_old[:, 1])
+ymax_old = np.max(X_old[:, 1])
+
+xmin_new = np.min(X_new[:, 0])
+xmax_new = np.max(X_new[:, 0])
+ymin_new = np.min(X_new[:, 1])
+ymax_new = np.max(X_new[:, 1])
+
+ax2[0].set_xlim(xmin_old, xmax_old)
+ax2[0].set_ylim(ymin_old, ymax_old)
+ax2[1].set_xlim(xmin_new, xmax_new)
+ax2[1].set_ylim(ymin_new, ymax_new)
+fig2.tight_layout()
+plt.savefig("mesh_morph_demo.jpg", dpi=800)
+# plt.show()

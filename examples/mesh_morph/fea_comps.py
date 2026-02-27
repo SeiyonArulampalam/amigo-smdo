@@ -33,14 +33,14 @@ class PlanarTruss(am.Component):
         A = self.constants["A"]
 
         # Extract data
-        x = self.data["x_coord"]
-        y = self.data["y_coord"]
+        x0 = self.data["x_coord"]
+        y0 = self.data["y_coord"]
 
         # Compute elemental K matrix
-        L = ((x[1] - x[0]) ** 2 + (y[1] - y[0]) ** 2) ** 0.5
+        L = ((x0[1] - x0[0]) ** 2 + (y0[1] - y0[0]) ** 2) ** 0.5
         coeff = E * A / L
-        C = (x[1] - x[0]) / L
-        S = (y[1] - y[0]) / L
+        C = (x0[1] - x0[0]) / L
+        S = (y0[1] - y0[0]) / L
 
         K00 = C * C
         K01 = C * S
@@ -71,8 +71,10 @@ class PlanarTruss(am.Component):
         ]
 
         # Energy
-        self.objective["morph_obj"] = 0.5 * (
-            res[0] * u[0] + res[1] * v[0] + res[2] * u[1] + res[3] * v[1]
+        self.objective["morph_obj"] = (
+            0.5
+            * coeff
+            * (res[0] * u[0] + res[1] * v[0] + res[2] * u[1] + res[3] * v[1])
         )
 
         return
@@ -243,8 +245,8 @@ class PlaneStress(am.Component):
         self.add_data("y_coord", shape=(3,))
 
         # Material for each element
-        self.add_constant("E", value=1.0e3)  # Young's Modulus
-        self.add_constant("t", value=1.0)  # Thickness
+        self.add_constant("E", value=1.0)  # Young's Modulus
+        self.add_constant("t", value=1.0e3)  # Thickness
         self.add_constant("nu", value=0.3)  # Poisson's Ratio
 
         # Define inputs to the problem (displacements)
