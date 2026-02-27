@@ -94,6 +94,38 @@ node4y_dirichlet = fea_comps.DirichletBcNode4y()
 node5y_dirichlet = fea_comps.DirichletBcNode5y()
 node5x_dirichlet = fea_comps.DirichletBcNode7x()
 node6x_dirichlet = fea_comps.DirichletBcNode4x()
+node6y_dirichlet = fea_comps.DirichletBcNode6y()
+node7y_dirichlet = fea_comps.DirichletBcNode7y()
+
+# Add component for line 7
+model.add_component(
+    name="pde_line7",
+    size=edge7.shape[0],
+    comp_obj=truss_y,
+)
+
+model.add_component(
+    name="node_src_line7_y",
+    size=edge7.shape[0] + 1,  # Number of nodes on edge 8
+    comp_obj=node_src_truss_y,
+)
+model.add_component(
+    name="n6y_dirichlet",
+    size=1,
+    comp_obj=node7y_dirichlet,
+)
+model.add_component(
+    name="n7y_dirichlet",
+    size=1,
+    comp_obj=node7y_dirichlet,
+)
+
+for i in range(edge7.shape[0]):
+    model.link(f"pde_line7.y_coord[{i}]", f"node_src_line7_y.y_coord[{i}:{i+2}]")
+    model.link(f"pde_line7.dy[{i}]", f"node_src_line7_y.dy[[{i},{i+1}]]")
+
+model.link("node_src_line7_y.dy", "n6y_dirichlet.dy", src_indices=[0])
+model.link("node_src_line7_y.dy", "n7y_dirichlet.dy", src_indices=[-1])
 
 # Add component for line 6
 model.add_component(
@@ -208,10 +240,10 @@ node5_coords = X[5]
 node6_coords = X[6]
 
 # Define new locations for the nodes
-line5_x_val = 1.2
-line7_x_val = -1.2
-line6_y_val = 1.2
-line8_y_val = -1.2
+line5_x_val = 0.5
+line7_x_val = -0.2
+line6_y_val = 0.3
+line8_y_val = -0.1
 
 # Define the y offset for lines 8 amd 6
 y_offset_line8 = line8_y_val + 1.0
@@ -226,6 +258,7 @@ data = model.get_data_vector()
 data["node_src_line8_x.x_coord"] = np.unique(X[edge8, 0], sorted=False)
 data["node_src_line5_y.y_coord"] = np.unique(X[edge5, 1], sorted=False)
 data["node_src_line6_x.x_coord"] = np.unique(X[edge6, 0], sorted=False)
+data["node_src_line7_y.y_coord"] = np.unique(X[edge7, 1], sorted=False)
 
 data["n7x_dirichlet.val"] = line7_x_val
 data["n4x_dirichlet.val"] = line5_x_val
@@ -235,6 +268,9 @@ data["n5y_dirichlet.val"] = line6_y_val
 
 data["n5x_dirichlet.val"] = line5_x_val
 data["n6x_dirichlet.val"] = line7_x_val
+
+data["n6y_dirichlet.val"] = line6_y_val
+data["n7y_dirichlet.val"] = line8_y_val
 
 problem = model.get_problem()
 mat = problem.create_matrix()
@@ -260,6 +296,7 @@ ans_local = ans
 line8_x_vals = ans_local.get_array()[model.get_indices("pde_line8.dx")].flatten()
 line5_y_vals = ans_local.get_array()[model.get_indices("pde_line5.dy")].flatten()
 line6_x_vals = ans_local.get_array()[model.get_indices("pde_line6.dx")].flatten()
+line7_y_vals = ans_local.get_array()[model.get_indices("pde_line7.dy")].flatten()
 
 # Plot before and after
 fig, ax = plt.subplots()
@@ -273,14 +310,15 @@ line6_ycoords = X[edge6.flatten(), 1]
 line7_xcoords = X[edge7.flatten(), 0]
 line7_ycoords = X[edge7.flatten(), 1]
 ax.plot(line8_xcoords, line8_ycoords, "ko--", label="Line 8")
-ax.plot(line5_xcoords, line5_ycoords, "ro--", label="Line 5")
-ax.plot(line6_xcoords, line6_ycoords, "go--", label="Line 6")
-ax.plot(line7_xcoords, line7_ycoords, "bo--", label="Line 7")
+ax.plot(line5_xcoords, line5_ycoords, "ko--", label="Line 5")
+ax.plot(line6_xcoords, line6_ycoords, "ko--", label="Line 6")
+ax.plot(line7_xcoords, line7_ycoords, "ko--", label="Line 7")
 
-ax.plot(line8_x_vals, line8_ycoords + y_offset_line8, "o-", label="Line 8 (new)")
-ax.plot(line5_xcoords + x_offset_line5, line5_y_vals, "o-", label="Line 5 (new)")
-ax.plot(line6_x_vals, line6_ycoords + y_offset_line6, "o-", label="Line 6 (new)")
+ax.plot(line8_x_vals, line8_ycoords + y_offset_line8, "ro-", label="Line 8 (new)")
+ax.plot(line5_xcoords + x_offset_line5, line5_y_vals, "ro-", label="Line 5 (new)")
+ax.plot(line6_x_vals, line6_ycoords + y_offset_line6, "ro-", label="Line 6 (new)")
+ax.plot(line7_xcoords + x_offset_line7, line7_y_vals, "ro-", label="Line 7 (new)")
 
-ax.legend()
+# ax.legend()
 plt.savefig("demo.jpg", dpi=500)
 # plt.show()
