@@ -308,8 +308,8 @@ data = model.get_data_vector()
 
 # Define deltas you want in the inner mesh
 dx5_dx4 = 0.8  # Right edge displacment in x
-dy5_dy6 = 0.5  # Top edge displacement in y
-dx6_dx7 = -0.35  # Left edge displacement in x
+dy5_dy6 = -0.25  # Top edge displacement in y
+dx6_dx7 = 0.1  # Left edge displacement in x
 dy7_dy4 = -0.8  # Bottom edge displacxement in y
 
 # Set the problem data for line 7
