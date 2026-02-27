@@ -253,33 +253,39 @@ model.initialize()
 # Define the data vector
 data = model.get_data_vector()
 
+# Define deltas you want in the inner mesh
+dx5_dx4 = 0.1  # Right edge displacment in x
+dy5_dy6 = 0.5  # Top edge displacement in y
+dx6_dx7 = -0.35  # Left edge displacement in x
+dy7_dy4 = -0.8  # Bottom edge displacxement in y
+
 # Set the problem data for line 7
 data["node_src_line_7.x_coord"] = X[line7_node_tags, 0]
 data["node_src_line_7.y_coord"] = X[line7_node_tags, 1]
-data["dirichlet_line_7_y.offset[0]"] = 1.2
-data["dirichlet_line_7_y.offset[-1]"] = -1.2
-data["dirichlet_line_7_x.offset[:]"] = -1.3
+data["dirichlet_line_7_y.offset[0]"] = dy5_dy6  # node 6
+data["dirichlet_line_7_y.offset[-1]"] = dy7_dy4  # node 7
+data["dirichlet_line_7_x.offset[:]"] = dx6_dx7
 
 # Set the problem data for line 5
 data["node_src_line_5.x_coord"] = X[line5_node_tags, 0]
 data["node_src_line_5.y_coord"] = X[line5_node_tags, 1]
-data["dirichlet_line_5_y.offset[0]"] = 1.5
-data["dirichlet_line_5_y.offset[-1]"] = -1.5
-data["dirichlet_line_5_x.offset[:]"] = 1.25
+data["dirichlet_line_5_y.offset[0]"] = dy7_dy4
+data["dirichlet_line_5_y.offset[-1]"] = dy5_dy6
+data["dirichlet_line_5_x.offset[:]"] = dx5_dx4
 
 # Set the problem data for line 8
 data["node_src_line_8.x_coord"] = X[line8_node_tags, 0]
 data["node_src_line_8.y_coord"] = X[line8_node_tags, 1]
-data["dirichlet_line_8_x.offset[0]"] = -1.5
-data["dirichlet_line_8_x.offset[-1]"] = 1.5
-data["dirichlet_line_8_y.offset[:]"] = -1.45
+data["dirichlet_line_8_x.offset[0]"] = dx6_dx7
+data["dirichlet_line_8_x.offset[-1]"] = dx5_dx4
+data["dirichlet_line_8_y.offset[:]"] = dy7_dy4
 
 # Set the problem data for line 6
 data["node_src_line_6.x_coord"] = X[line6_node_tags, 0]
 data["node_src_line_6.y_coord"] = X[line6_node_tags, 1]
-data["dirichlet_line_6_x.offset[0]"] = -1.8
-data["dirichlet_line_6_x.offset[-1]"] = 1.9
-data["dirichlet_line_6_y.offset[:]"] = 1.65
+data["dirichlet_line_6_x.offset[0]"] = dx5_dx4
+data["dirichlet_line_6_x.offset[-1]"] = dx6_dx7
+data["dirichlet_line_6_y.offset[:]"] = dy5_dy6
 
 
 # Setup the problem
@@ -315,10 +321,29 @@ line8_v = ans_local.get_array()[model.get_indices("node_src_line_8.v_truss")]
 line6_u = ans_local.get_array()[model.get_indices("node_src_line_6.u_truss")]
 line6_v = ans_local.get_array()[model.get_indices("node_src_line_6.v_truss")]
 
+# Iniital coordinates for each line
+line7_x0 = X[line7_node_tags, 0]
+line7_y0 = X[line7_node_tags, 1]
+
+line8_x0 = X[line8_node_tags, 0]
+line8_y0 = X[line8_node_tags, 1]
+
+line5_x0 = X[line5_node_tags, 0]
+line5_y0 = X[line5_node_tags, 1]
+
+line6_x0 = X[line6_node_tags, 0]
+line6_y0 = X[line6_node_tags, 1]
+
 # Plot
 fig, ax = plt.subplots()
-ax.plot(line7_u, line7_v)
-ax.plot(line8_u, line8_v)
-ax.plot(line5_u, line5_v)
-ax.plot(line6_u, line6_v)
+
+ax.plot(line7_x0, line7_y0, "k-")
+ax.plot(line8_x0, line8_y0, "k-")
+ax.plot(line5_x0, line5_y0, "k-")
+ax.plot(line6_x0, line6_y0, "k-")
+
+ax.plot(line7_x0 + line7_u, line7_y0 + line7_v, "r-")
+ax.plot(line8_x0 + line8_u, line8_y0 + line8_v, "r-")
+ax.plot(line5_x0 + line5_u, line5_y0 + line5_v, "r-")
+ax.plot(line6_x0 + line6_u, line6_y0 + line6_v, "r-")
 plt.show()

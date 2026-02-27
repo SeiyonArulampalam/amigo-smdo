@@ -5,7 +5,7 @@ import argparse
 import amigo as am
 import matplotlib.pyplot as plt
 from scipy.sparse.linalg import spsolve
-import plot_mesh
+import examples.mesh_morph.utils as utils
 
 
 def plot_matrix(dense_mat):
@@ -348,7 +348,7 @@ X[:, 0] = X[:, 0] + u
 X[:, 1] = X[:, 1] + v
 
 # Plot the new mesh
-plot_mesh.plot_morph(X, [conn])
+utils.plot_morph(X, [conn])
 plt.show()
 
 # Plot before and after

@@ -2,6 +2,14 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 
 
+def plot_matrix(dense_mat):
+    plt.figure(figsize=(6, 5))
+    plt.imshow(dense_mat, cmap="viridis", interpolation="nearest", aspect="auto")
+    plt.colorbar(label="value")
+    plt.tight_layout()
+    return
+
+
 def plot_region(ax, X, conn_list, color, label=None):
     """
     Plot a region made of triangular elements.
@@ -39,5 +47,5 @@ def plot_morph(X, conn):
     plot_region(ax, X, conn, color="#7BE7FF", label="Region 1")
     ax.set_aspect("equal")
     fig.tight_layout()
-    plt.autoscale()    
+    plt.autoscale()
     return
