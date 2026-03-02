@@ -33,8 +33,8 @@ gmsh.initialize()
 gmsh.model.add("mesh")
 
 # Mesh refinement at nodes
-lc = 5e-1
-lc1 = 3e-1
+lc = 2e-1
+lc1 = 7e-2
 
 # Geometry dimentions
 hb = 5  # Boundary length and width

@@ -125,8 +125,8 @@ class PlaneStress(am.Component):
 
         # Material for each element
         self.add_constant("E", value=1.0)  # Young's Modulus
-        self.add_constant("t", value=1.0e3)  # Thickness
-        self.add_constant("nu", value=0.3)  # Poisson's Ratio
+        self.add_constant("t", value=1.0e-3)  # Thickness
+        self.add_constant("nu", value=0.5)  # Poisson's Ratio
 
         # Define inputs to the problem (displacements)
         self.add_input("u", shape=(3,), value=0.0)
