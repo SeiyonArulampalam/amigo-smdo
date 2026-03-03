@@ -7,6 +7,14 @@ import imageio
 import niceplots
 
 
+def plot_matrix(dense_mat):
+    plt.figure(figsize=(6, 5))
+    plt.imshow(dense_mat, cmap="viridis", interpolation="nearest", aspect="auto")
+    plt.colorbar(label="value")
+    plt.tight_layout()
+    return
+
+
 def build_global_mapping(surface_conns: dict):
     """
     Build global element indexing and index lists from surface connectivity dict.

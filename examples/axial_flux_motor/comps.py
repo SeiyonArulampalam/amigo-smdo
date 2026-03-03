@@ -375,7 +375,7 @@ class DirichletBcPlanarTruss(am.Component):
         super().__init__()
         self.add_input("dof", value=1.0)
         self.add_input("lam", value=1.0)
-        self.add_data("offset", value=1.0)
+        self.add_data("offset", value=0.0)
         self.add_objective("morph_obj")
         return
 
@@ -542,20 +542,20 @@ class NodeSourcePlaneStress(am.Component):
         return
 
 
-class DirichletBcPlaneStress(am.Component):
-    def __init__(self):
-        super().__init__()
-        self.add_input("dof", value=1.0)
-        self.add_input("lam", value=1.0)
-        self.add_data("offset", value=0.0)
-        self.add_objective("morph_obj")
-        return
+# class DirichletBcPlaneStress(am.Component):
+#     def __init__(self):
+#         super().__init__()
+#         self.add_input("dof", value=1.0)
+#         self.add_input("lam", value=1.0)
+#         self.add_data("offset", value=0.0)
+#         self.add_objective("morph_obj")
+#         return
 
-    def compute(self):
-        self.objective["morph_obj"] = (
-            self.inputs["dof"] + self.data["offset"]
-        ) * self.inputs["lam"]
-        return
+#     def compute(self):
+#         self.objective["morph_obj"] = (
+#             self.inputs["dof"] + self.data["offset"]
+#         ) * self.inputs["lam"]
+#         return
 
 
 # class NodeSourceMorph(am.Component):

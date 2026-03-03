@@ -14,7 +14,6 @@ from comps import (
     DirichletBcPlanarTruss,
     PlaneStress,
     NodeSourcePlaneStress,
-    DirichletBcPlaneStress,
 )
 import compute_magnetic_field
 import compute_forces as compute_forces
@@ -123,8 +122,8 @@ shaft_diam = 25e-3
 # Define the motor geometry
 ###########################
 num_mag = 10  #! Fixed
-mesh_refinement = 6e-3
-npts_airgap = 240
+mesh_refinement = 2e-3
+npts_airgap = 340
 slide_number = args.slide_number
 
 airgap = 1.0e-3
@@ -1097,7 +1096,6 @@ dirichlet_bc_truss = DirichletBcPlanarTruss()
 
 ps = PlaneStress()
 ps_node_src = NodeSourcePlaneStress()
-ps_dirichlet = DirichletBcPlaneStress()
 
 #############
 # Amigo Model
@@ -1149,10 +1147,24 @@ Airgap Left and Right Edges
    70  (up -> down node order)
 }
 
-Left and right Edges
+Left Back Iron
 {
-    54, 55, (down -> up node order)
-    57, 52, (up -> down node order)
+    55 (down -> up node order)
+}
+
+Left Magnet Airgap Edge
+{
+    54 (down -> up node order)
+}
+
+Right Back Iron Edge
+{
+    57 (up -> down node order)
+}
+
+Right Magnet Airgap Edge
+{
+    52 (up -> down node order)
 }
 
 Top and Bottom Edges
@@ -1165,8 +1177,13 @@ Top and Bottom Edges
 line_set_upper_magnet_boundary = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
 line_set_lower_magnet_boundary = [50, 47, 44, 41, 38, 35, 32, 29, 26, 23]
 
-line_set_upper_space_between_magnet = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21]
-line_set_lower_space_between_magnet = [58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68]
+line_set_upper_space_between_magnet = [3, 5, 7, 9, 11, 13, 15, 17, 19]
+line_set_lower_space_between_magnet = [59, 60, 61, 62, 63, 64, 65, 66, 67]
+
+line_set_left_upper_half_space_between_magnet = [1]
+line_set_right_upper_half_space_between_magnet = [21]
+line_set_left_lower_half_space_between_magnet = [58]
+line_set_right_lower_half_space_between_magnet = [68]
 
 line_set_vert_magnet_left = [51, 48, 45, 42, 39, 36, 33, 30, 27, 24]
 line_set_vert_magnet_right = [49, 46, 43, 40, 37, 34, 31, 28, 25, 22]
@@ -1174,8 +1191,10 @@ line_set_vert_magnet_right = [49, 46, 43, 40, 37, 34, 31, 28, 25, 22]
 line_set_ag_left = [69]
 line_set_ag_right = [70]
 
-line_set_left_edges = [54, 55]
-line_set_right_edges = [57, 52]
+line_set_left_back_iron = [55]
+line_set_left_magnet_ag = [54]
+line_set_right_back_iron = [57]
+line_set_right_magnet_ag = [52]
 
 line_set_top_edges = [56]
 line_set_bottom_edges = [53]
@@ -1186,12 +1205,22 @@ line_sets_plane_stress_bc = {
         line_set_lower_magnet_boundary,
         line_set_upper_space_between_magnet,
         line_set_lower_space_between_magnet,
+        line_set_ag_left,
+        line_set_ag_right,
+        line_set_left_back_iron,
+        line_set_right_back_iron,
+        line_set_left_upper_half_space_between_magnet,
+        line_set_right_upper_half_space_between_magnet,
+        line_set_left_lower_half_space_between_magnet,
+        line_set_right_lower_half_space_between_magnet,
     ],
     "all": [
         line_set_vert_magnet_left,
         line_set_vert_magnet_right,
-        line_set_ag_left,
-        line_set_ag_right,
+        line_set_left_magnet_ag,
+        line_set_right_magnet_ag,
+        line_set_top_edges,
+        line_set_bottom_edges,
     ],
 }
 
@@ -1203,12 +1232,18 @@ line_sets_dict = {
         line_set_lower_space_between_magnet,
         line_set_top_edges,
         line_set_bottom_edges,
+        line_set_left_upper_half_space_between_magnet,
+        line_set_right_upper_half_space_between_magnet,
+        line_set_left_lower_half_space_between_magnet,
+        line_set_right_lower_half_space_between_magnet,
     ],
     "vertical": [
         line_set_ag_left,
         line_set_ag_right,
-        line_set_left_edges,
-        line_set_right_edges,
+        line_set_left_back_iron,
+        line_set_left_magnet_ag,
+        line_set_right_back_iron,
+        line_set_right_magnet_ag,
         line_set_vert_magnet_left,
         line_set_vert_magnet_right,
     ],
@@ -1322,15 +1357,57 @@ for key, val in line_sets_dict.items():
 ####################
 # Plane Stress Model
 ####################
-# # Plane stress components and links
-# model.add_component("ps", nelems_outter_rotor, ps)
-# model.add_component("ps_node_src", nnodes_outter_rotor, ps_node_src)
+# Plane stress components and links
+model.add_component("ps", nelems_outter_rotor, ps)
+model.add_component("ps_node_src", nnodes_outter_rotor, ps_node_src)
 
-# model.link("ps.x_coord", "ps_node_src.x_coord", tgt_indices=outter_rotor_glob_conn)
-# model.link("ps.y_coord", "ps_node_src.y_coord", tgt_indices=outter_rotor_glob_conn)
+model.link("ps.x_coord", "ps_node_src.x_coord", tgt_indices=outter_rotor_glob_conn)
+model.link("ps.y_coord", "ps_node_src.y_coord", tgt_indices=outter_rotor_glob_conn)
 
-# model.link("ps.u", "ps_node_src.u", tgt_indices=outter_rotor_glob_conn)
-# model.link("ps.v", "ps_node_src.v", tgt_indices=outter_rotor_glob_conn)
+model.link("ps.u", "ps_node_src.u", tgt_indices=outter_rotor_glob_conn)
+model.link("ps.v", "ps_node_src.v", tgt_indices=outter_rotor_glob_conn)
+
+for key, val in line_sets_plane_stress_bc.items():
+    # Loop through each line tag in the set
+    for line_set in val:
+        # Loop through each line set in the key
+        for tag in line_set:
+            # Get the connectivity for the line segment
+            edge = parser_outter_rotor.get_conn(f"LINE{tag}", "T3D2")
+
+            # Get the unique node tags on each line (remove duplicates and keep the original ordering)
+            edge_node_tags = np.array(list(dict.fromkeys(edge.flatten())))
+
+            # Compunte the toal number of elements and nodes on the this edge
+            nelems_edge = edge.shape[0]
+            nnodes_edge = edge.shape[0] + 1
+
+            # Print out info
+            # print(f"Tag: {tag}, nelems: {nelems_edge}, nnodes: {nnodes_edge}")
+            # print("Edge Node Tags (Unique):")
+            # print(edge_node_tags)
+            if key == "all":
+                model.link(
+                    "ps_node_src.u",
+                    f"node_src_line_{tag}.u_truss",
+                    src_indices=edge_node_tags,
+                )
+                model.link(
+                    "ps_node_src.v",
+                    f"node_src_line_{tag}.v_truss",
+                    src_indices=edge_node_tags,
+                )
+            elif key == "interior":
+                model.link(
+                    "ps_node_src.u",
+                    f"node_src_line_{tag}.u_truss[{1}:{-1}]",
+                    src_indices=edge_node_tags[1:-1],
+                )
+                model.link(
+                    "ps_node_src.v",
+                    f"node_src_line_{tag}.v_truss[{1}:{-1}]",
+                    src_indices=edge_node_tags[1:-1],
+                )
 
 ##############
 # Build Module
@@ -1363,6 +1440,117 @@ for key, val in line_sets_dict.items():
             data[f"node_src_line_{tag}.x_coord"] = X_outter_rotor[edge_node_tags, 0]
             data[f"node_src_line_{tag}.y_coord"] = X_outter_rotor[edge_node_tags, 1]
 
+data["ps_node_src.x_coord"] = X_outter_rotor[:, 0]
+data["ps_node_src.y_coord"] = X_outter_rotor[:, 1]
+
+# Define the mesh morph dirichlet bc values
+morph_total_length = 0e-3 #! Link to space between magnets
+morph_magent_length = 1.5e-3 #! link to morph_space_between_magnets
+morph_magnet_offset = 0.0e-3 #! Link to morph length
+morph_space_between_magnets = morph_magent_length # ! Link the morph_magnet_length
+morph_back_iron_thickness = -8e-3
+morph_upper_magnet_thickness = 2e-3
+morph_lower_magnet_thickness = -1e-3
+morph_airgap_thickness = 1.0e-3 + morph_lower_magnet_thickness
+
+# Interior
+for tag in line_set_upper_magnet_boundary:
+    data[f"dirichlet_line_{tag}_x.offset[0]"] = -morph_magent_length  # Left node
+    data[f"dirichlet_line_{tag}_x.offset[-1]"] = morph_magent_length  # Right node
+    data[f"dirichlet_line_{tag}_y.offset[:]"] = morph_upper_magnet_thickness
+
+# Interior
+for tag in line_set_lower_magnet_boundary:
+    data[f"dirichlet_line_{tag}_x.offset[0]"] = morph_magent_length  # Right node
+    data[f"dirichlet_line_{tag}_x.offset[-1]"] = -morph_magent_length  # Left node
+    data[f"dirichlet_line_{tag}_y.offset[:]"] = -morph_lower_magnet_thickness
+
+# Interior
+for tag in line_set_upper_space_between_magnet:
+    data[f"dirichlet_line_{tag}_x.offset[0]"] = morph_space_between_magnets  # Left node
+    data[f"dirichlet_line_{tag}_x.offset[-1]"] = -morph_space_between_magnets  # Right node
+    data[f"dirichlet_line_{tag}_y.offset[:]"] = morph_upper_magnet_thickness
+
+# Interior
+for tag in line_set_lower_space_between_magnet:
+    data[f"dirichlet_line_{tag}_x.offset[0]"] = -morph_space_between_magnets  # Right node
+    data[f"dirichlet_line_{tag}_x.offset[-1]"] = morph_space_between_magnets  # Left node
+    data[f"dirichlet_line_{tag}_y.offset[:]"] = -morph_lower_magnet_thickness
+
+# All
+for tag in line_set_vert_magnet_left:
+    data[f"dirichlet_line_{tag}_y.offset[0]"] = -morph_lower_magnet_thickness  # bottom node
+    data[f"dirichlet_line_{tag}_y.offset[-1]"] = morph_upper_magnet_thickness  # top node
+    data[f"dirichlet_line_{tag}_x.offset[:]"] = -morph_space_between_magnets
+
+# All
+for tag in line_set_vert_magnet_right:
+    data[f"dirichlet_line_{tag}_y.offset[0]"] = morph_upper_magnet_thickness  # top node
+    data[f"dirichlet_line_{tag}_y.offset[-1]"] = -morph_lower_magnet_thickness  # bottom node
+    data[f"dirichlet_line_{tag}_x.offset[:]"] = morph_space_between_magnets
+
+# All
+data[f"dirichlet_line_56_x.offset[0]"] = -morph_total_length # Node 45
+data[f"dirichlet_line_56_x.offset[-1]"] = morph_total_length # Node 46
+data[f"dirichlet_line_56_y.offset[:]"] = morph_back_iron_thickness
+
+# All
+data[f"dirichlet_line_53_x.offset[0]"] = morph_total_length  # Node 43
+data[f"dirichlet_line_53_x.offset[-1]"] = -morph_total_length  # Node 44
+data[f"dirichlet_line_53_y.offset[:]"] = -morph_airgap_thickness
+
+# Interior
+data[f"dirichlet_line_55_y.offset[0]"] = morph_upper_magnet_thickness # Node 1
+data[f"dirichlet_line_55_y.offset[-1]"] = morph_back_iron_thickness # Node 45
+data[f"dirichlet_line_55_x.offset[:]"] = -morph_total_length
+
+# All
+data[f"dirichlet_line_54_y.offset[0]"] = -morph_lower_magnet_thickness # Node 47
+data[f"dirichlet_line_54_y.offset[-1]"] = morph_upper_magnet_thickness # Node 1
+data[f"dirichlet_line_54_x.offset[:]"] = -morph_total_length
+
+# Interior
+data[f"dirichlet_line_69_y.offset[0]"] = -morph_airgap_thickness  # Node 44
+data[f"dirichlet_line_69_y.offset[-1]"] = morph_lower_magnet_thickness  # Node 57
+data[f"dirichlet_line_69_x.offset[:]"] = -morph_total_length
+
+# Interior
+data[f"dirichlet_line_57_y.offset[0]"] = morph_back_iron_thickness # Node 46
+data[f"dirichlet_line_57_y.offset[-1]"] = morph_upper_magnet_thickness # Node 22
+data[f"dirichlet_line_57_x.offset[:]"] = morph_total_length
+
+# All
+data[f"dirichlet_line_52_y.offset[0]"] = morph_upper_magnet_thickness  # Node 22
+data[f"dirichlet_line_52_y.offset[-1]"] = -morph_lower_magnet_thickness  # Node 48
+data[f"dirichlet_line_52_x.offset[:]"] = morph_total_length
+
+# Interior
+data[f"dirichlet_line_70_y.offset[0]"] = -morph_lower_magnet_thickness  # Node 48
+data[f"dirichlet_line_70_y.offset[-1]"] = -morph_airgap_thickness  # Node 43
+data[f"dirichlet_line_70_x.offset[:]"] = morph_total_length
+
+# Interior
+data[f"dirichlet_line_1_x.offset[0]"] = -morph_total_length  # Node 1
+data[f"dirichlet_line_1_x.offset[-1]"] = -morph_magent_length # Node 2
+data[f"dirichlet_line_1_y.offset[:]"] = morph_upper_magnet_thickness
+
+# Interior
+data[f"dirichlet_line_21_x.offset[0]"] = morph_magent_length  # Node 21
+data[f"dirichlet_line_21_x.offset[-1]"] = morph_total_length # Node 22
+data[f"dirichlet_line_21_y.offset[:]"] = morph_upper_magnet_thickness
+
+# Interior
+data[f"dirichlet_line_58_x.offset[0]"] = -morph_total_length  # Node 47
+data[f"dirichlet_line_58_x.offset[-1]"] = -morph_magent_length # Node 23
+data[f"dirichlet_line_58_y.offset[:]"] = -morph_lower_magnet_thickness
+
+
+# Interior
+data[f"dirichlet_line_68_x.offset[0]"] =  morph_magent_length  # Node 42
+data[f"dirichlet_line_68_x.offset[-1]"] = morph_total_length # Node 48
+data[f"dirichlet_line_68_y.offset[:]"] = -morph_lower_magnet_thickness
+
+
 #############################
 # Setup and solve the problem
 #############################
@@ -1382,147 +1570,294 @@ csr_mat = am.tocsr(mat)
 # utils.plot_matrix(csr_mat.todense())
 # plt.show()
 
-# ans.get_array()[:] = spsolve(csr_mat, g.get_array())
-# ans_local = ans
+ans.get_array()[:] = spsolve(csr_mat, g.get_array())
+ans_local = ans
 
-# #############################
-# # Plot morphed motor geometry
-# #############################
-# X_stator[:, 0] = X_stator[:, 0] + u_stator
-# X_stator[:, 1] = X_stator[:, 1] + v_stator
-# if args.plot_geometry:
-#     plot_motor.plot(
-#         slide_number,
-#         total_length,
-#         copper_slot_height,
-#         tooth_tip_thickness,
-#         airgap,
-#         magnet_thickness,
-#         back_iron_thickness,
-#         X_stator,
-#         X_inner_rotor,
-#         X_outter_rotor,
-#         stator_conn_s1,
-#         stator_conn_s2,
-#         stator_conn_s3,
-#         stator_conn_s4,
-#         stator_conn_s5,
-#         stator_conn_s6,
-#         stator_conn_s7,
-#         stator_conn_s8,
-#         stator_conn_s9,
-#         stator_conn_s10,
-#         stator_conn_s11,
-#         stator_conn_s12,
-#         stator_conn_s13,
-#         stator_conn_s14,
-#         stator_conn_s15,
-#         stator_conn_s16,
-#         stator_conn_s17,
-#         stator_conn_s18,
-#         stator_conn_s19,
-#         stator_conn_s20,
-#         stator_conn_s21,
-#         stator_conn_s22,
-#         stator_conn_s23,
-#         stator_conn_s24,
-#         stator_conn_t1,
-#         stator_conn_t2,
-#         stator_conn_t3,
-#         stator_conn_t4,
-#         stator_conn_t5,
-#         stator_conn_t6,
-#         stator_conn_t7,
-#         stator_conn_t8,
-#         stator_conn_t9,
-#         stator_conn_t10,
-#         stator_conn_t11,
-#         stator_conn_t12,
-#         stator_conn_t13,
-#         stator_conn_ag_inner,
-#         stator_conn_ag_outter,
-#         stator_pbc_nodes_left,
-#         stator_pbc_nodes_right,
-#         stator_pbc_nodes_bottom,
-#         stator_pbc_nodes_top,
-#         stator_conn_ag_1,
-#         stator_conn_ag_2,
-#         stator_conn_ag_3,
-#         stator_conn_ag_4,
-#         stator_conn_ag_5,
-#         stator_conn_ag_6,
-#         stator_conn_ag_7,
-#         stator_conn_ag_8,
-#         stator_conn_ag_9,
-#         stator_conn_ag_10,
-#         stator_conn_ag_11,
-#         stator_conn_ag_12,
-#         stator_conn_ag_13,
-#         stator_conn_ag_14,
-#         stator_conn_ag_15,
-#         stator_conn_ag_16,
-#         stator_conn_ag_17,
-#         stator_conn_ag_18,
-#         stator_conn_ag_19,
-#         stator_conn_ag_20,
-#         stator_conn_ag_21,
-#         stator_conn_ag_22,
-#         stator_conn_ag_23,
-#         stator_conn_ag_24,
-#         outter_rotor_conn_m1,
-#         outter_rotor_conn_m2,
-#         outter_rotor_conn_m3,
-#         outter_rotor_conn_m4,
-#         outter_rotor_conn_m5,
-#         outter_rotor_conn_m6,
-#         outter_rotor_conn_m7,
-#         outter_rotor_conn_m8,
-#         outter_rotor_conn_m9,
-#         outter_rotor_conn_m10,
-#         outter_rotor_conn_back_iron,
-#         outter_rotor_conn_airgap,
-#         outter_rotor_pbc_nodes_left,
-#         outter_rotor_pbc_nodes_right,
-#         outter_rotor_dirichlet_nodes,
-#         outter_rotor_pbc_nodes_bottom,
-#         outter_rotor_conn_ag_mag_1,
-#         outter_rotor_conn_ag_mag_2,
-#         outter_rotor_conn_ag_mag_3,
-#         outter_rotor_conn_ag_mag_4,
-#         outter_rotor_conn_ag_mag_5,
-#         outter_rotor_conn_ag_mag_6,
-#         outter_rotor_conn_ag_mag_7,
-#         outter_rotor_conn_ag_mag_8,
-#         outter_rotor_conn_ag_mag_9,
-#         outter_rotor_conn_ag_mag_10,
-#         outter_rotor_conn_ag_mag_11,
-#         inner_rotor_conn_m1,
-#         inner_rotor_conn_m2,
-#         inner_rotor_conn_m3,
-#         inner_rotor_conn_m4,
-#         inner_rotor_conn_m5,
-#         inner_rotor_conn_m6,
-#         inner_rotor_conn_m7,
-#         inner_rotor_conn_m8,
-#         inner_rotor_conn_m9,
-#         inner_rotor_conn_m10,
-#         inner_rotor_conn_back_iron,
-#         inner_rotor_conn_airgap,
-#         inner_rotor_pbc_nodes_left,
-#         inner_rotor_pbc_nodes_right,
-#         inner_rotor_dirichlet_nodes,
-#         inner_rotor_pbc_nodes_top,
-#         inner_rotor_conn_ag_mag_1,
-#         inner_rotor_conn_ag_mag_2,
-#         inner_rotor_conn_ag_mag_3,
-#         inner_rotor_conn_ag_mag_4,
-#         inner_rotor_conn_ag_mag_5,
-#         inner_rotor_conn_ag_mag_6,
-#         inner_rotor_conn_ag_mag_7,
-#         inner_rotor_conn_ag_mag_8,
-#         inner_rotor_conn_ag_mag_9,
-#         inner_rotor_conn_ag_mag_10,
-#         inner_rotor_conn_ag_mag_11,
-#     )
+# Extract the solution
+u_outer_rotor = ans_local.get_array()[model.get_indices("ps_node_src.u")]
+v_outer_rotor = ans_local.get_array()[model.get_indices("ps_node_src.v")]
 
-# plt.show()
+print(u_outer_rotor)
+print(max(u_outer_rotor))
+
+#########################
+# Plot the original motor
+#########################
+fig, ax = plt.subplots(nrows=2, figsize=(8, 2))
+plot_motor.plot(
+    slide_number,
+    total_length,
+    copper_slot_height,
+    tooth_tip_thickness,
+    airgap,
+    magnet_thickness,
+    back_iron_thickness,
+    X_stator,
+    X_inner_rotor,
+    X_outter_rotor,
+    stator_conn_s1,
+    stator_conn_s2,
+    stator_conn_s3,
+    stator_conn_s4,
+    stator_conn_s5,
+    stator_conn_s6,
+    stator_conn_s7,
+    stator_conn_s8,
+    stator_conn_s9,
+    stator_conn_s10,
+    stator_conn_s11,
+    stator_conn_s12,
+    stator_conn_s13,
+    stator_conn_s14,
+    stator_conn_s15,
+    stator_conn_s16,
+    stator_conn_s17,
+    stator_conn_s18,
+    stator_conn_s19,
+    stator_conn_s20,
+    stator_conn_s21,
+    stator_conn_s22,
+    stator_conn_s23,
+    stator_conn_s24,
+    stator_conn_t1,
+    stator_conn_t2,
+    stator_conn_t3,
+    stator_conn_t4,
+    stator_conn_t5,
+    stator_conn_t6,
+    stator_conn_t7,
+    stator_conn_t8,
+    stator_conn_t9,
+    stator_conn_t10,
+    stator_conn_t11,
+    stator_conn_t12,
+    stator_conn_t13,
+    stator_conn_ag_inner,
+    stator_conn_ag_outter,
+    stator_pbc_nodes_left,
+    stator_pbc_nodes_right,
+    stator_pbc_nodes_bottom,
+    stator_pbc_nodes_top,
+    stator_conn_ag_1,
+    stator_conn_ag_2,
+    stator_conn_ag_3,
+    stator_conn_ag_4,
+    stator_conn_ag_5,
+    stator_conn_ag_6,
+    stator_conn_ag_7,
+    stator_conn_ag_8,
+    stator_conn_ag_9,
+    stator_conn_ag_10,
+    stator_conn_ag_11,
+    stator_conn_ag_12,
+    stator_conn_ag_13,
+    stator_conn_ag_14,
+    stator_conn_ag_15,
+    stator_conn_ag_16,
+    stator_conn_ag_17,
+    stator_conn_ag_18,
+    stator_conn_ag_19,
+    stator_conn_ag_20,
+    stator_conn_ag_21,
+    stator_conn_ag_22,
+    stator_conn_ag_23,
+    stator_conn_ag_24,
+    outter_rotor_conn_m1,
+    outter_rotor_conn_m2,
+    outter_rotor_conn_m3,
+    outter_rotor_conn_m4,
+    outter_rotor_conn_m5,
+    outter_rotor_conn_m6,
+    outter_rotor_conn_m7,
+    outter_rotor_conn_m8,
+    outter_rotor_conn_m9,
+    outter_rotor_conn_m10,
+    outter_rotor_conn_back_iron,
+    outter_rotor_conn_airgap,
+    outter_rotor_pbc_nodes_left,
+    outter_rotor_pbc_nodes_right,
+    outter_rotor_dirichlet_nodes,
+    outter_rotor_pbc_nodes_bottom,
+    outter_rotor_conn_ag_mag_1,
+    outter_rotor_conn_ag_mag_2,
+    outter_rotor_conn_ag_mag_3,
+    outter_rotor_conn_ag_mag_4,
+    outter_rotor_conn_ag_mag_5,
+    outter_rotor_conn_ag_mag_6,
+    outter_rotor_conn_ag_mag_7,
+    outter_rotor_conn_ag_mag_8,
+    outter_rotor_conn_ag_mag_9,
+    outter_rotor_conn_ag_mag_10,
+    outter_rotor_conn_ag_mag_11,
+    inner_rotor_conn_m1,
+    inner_rotor_conn_m2,
+    inner_rotor_conn_m3,
+    inner_rotor_conn_m4,
+    inner_rotor_conn_m5,
+    inner_rotor_conn_m6,
+    inner_rotor_conn_m7,
+    inner_rotor_conn_m8,
+    inner_rotor_conn_m9,
+    inner_rotor_conn_m10,
+    inner_rotor_conn_back_iron,
+    inner_rotor_conn_airgap,
+    inner_rotor_pbc_nodes_left,
+    inner_rotor_pbc_nodes_right,
+    inner_rotor_dirichlet_nodes,
+    inner_rotor_pbc_nodes_top,
+    inner_rotor_conn_ag_mag_1,
+    inner_rotor_conn_ag_mag_2,
+    inner_rotor_conn_ag_mag_3,
+    inner_rotor_conn_ag_mag_4,
+    inner_rotor_conn_ag_mag_5,
+    inner_rotor_conn_ag_mag_6,
+    inner_rotor_conn_ag_mag_7,
+    inner_rotor_conn_ag_mag_8,
+    inner_rotor_conn_ag_mag_9,
+    inner_rotor_conn_ag_mag_10,
+    inner_rotor_conn_ag_mag_11,
+    fig=fig,
+    ax=ax[0],
+)
+
+# Morphed motor geometry on a new plot
+X_outter_rotor_morph = X_outter_rotor.copy()
+X_outter_rotor_morph[:, 0] += u_outer_rotor
+X_outter_rotor_morph[:, 1] += v_outer_rotor
+plot_motor.plot(
+    slide_number,
+    total_length,
+    copper_slot_height,
+    tooth_tip_thickness,
+    airgap,
+    magnet_thickness,
+    back_iron_thickness,
+    X_stator,
+    X_inner_rotor,
+    X_outter_rotor_morph,
+    stator_conn_s1,
+    stator_conn_s2,
+    stator_conn_s3,
+    stator_conn_s4,
+    stator_conn_s5,
+    stator_conn_s6,
+    stator_conn_s7,
+    stator_conn_s8,
+    stator_conn_s9,
+    stator_conn_s10,
+    stator_conn_s11,
+    stator_conn_s12,
+    stator_conn_s13,
+    stator_conn_s14,
+    stator_conn_s15,
+    stator_conn_s16,
+    stator_conn_s17,
+    stator_conn_s18,
+    stator_conn_s19,
+    stator_conn_s20,
+    stator_conn_s21,
+    stator_conn_s22,
+    stator_conn_s23,
+    stator_conn_s24,
+    stator_conn_t1,
+    stator_conn_t2,
+    stator_conn_t3,
+    stator_conn_t4,
+    stator_conn_t5,
+    stator_conn_t6,
+    stator_conn_t7,
+    stator_conn_t8,
+    stator_conn_t9,
+    stator_conn_t10,
+    stator_conn_t11,
+    stator_conn_t12,
+    stator_conn_t13,
+    stator_conn_ag_inner,
+    stator_conn_ag_outter,
+    stator_pbc_nodes_left,
+    stator_pbc_nodes_right,
+    stator_pbc_nodes_bottom,
+    stator_pbc_nodes_top,
+    stator_conn_ag_1,
+    stator_conn_ag_2,
+    stator_conn_ag_3,
+    stator_conn_ag_4,
+    stator_conn_ag_5,
+    stator_conn_ag_6,
+    stator_conn_ag_7,
+    stator_conn_ag_8,
+    stator_conn_ag_9,
+    stator_conn_ag_10,
+    stator_conn_ag_11,
+    stator_conn_ag_12,
+    stator_conn_ag_13,
+    stator_conn_ag_14,
+    stator_conn_ag_15,
+    stator_conn_ag_16,
+    stator_conn_ag_17,
+    stator_conn_ag_18,
+    stator_conn_ag_19,
+    stator_conn_ag_20,
+    stator_conn_ag_21,
+    stator_conn_ag_22,
+    stator_conn_ag_23,
+    stator_conn_ag_24,
+    outter_rotor_conn_m1,
+    outter_rotor_conn_m2,
+    outter_rotor_conn_m3,
+    outter_rotor_conn_m4,
+    outter_rotor_conn_m5,
+    outter_rotor_conn_m6,
+    outter_rotor_conn_m7,
+    outter_rotor_conn_m8,
+    outter_rotor_conn_m9,
+    outter_rotor_conn_m10,
+    outter_rotor_conn_back_iron,
+    outter_rotor_conn_airgap,
+    outter_rotor_pbc_nodes_left,
+    outter_rotor_pbc_nodes_right,
+    outter_rotor_dirichlet_nodes,
+    outter_rotor_pbc_nodes_bottom,
+    outter_rotor_conn_ag_mag_1,
+    outter_rotor_conn_ag_mag_2,
+    outter_rotor_conn_ag_mag_3,
+    outter_rotor_conn_ag_mag_4,
+    outter_rotor_conn_ag_mag_5,
+    outter_rotor_conn_ag_mag_6,
+    outter_rotor_conn_ag_mag_7,
+    outter_rotor_conn_ag_mag_8,
+    outter_rotor_conn_ag_mag_9,
+    outter_rotor_conn_ag_mag_10,
+    outter_rotor_conn_ag_mag_11,
+    inner_rotor_conn_m1,
+    inner_rotor_conn_m2,
+    inner_rotor_conn_m3,
+    inner_rotor_conn_m4,
+    inner_rotor_conn_m5,
+    inner_rotor_conn_m6,
+    inner_rotor_conn_m7,
+    inner_rotor_conn_m8,
+    inner_rotor_conn_m9,
+    inner_rotor_conn_m10,
+    inner_rotor_conn_back_iron,
+    inner_rotor_conn_airgap,
+    inner_rotor_pbc_nodes_left,
+    inner_rotor_pbc_nodes_right,
+    inner_rotor_dirichlet_nodes,
+    inner_rotor_pbc_nodes_top,
+    inner_rotor_conn_ag_mag_1,
+    inner_rotor_conn_ag_mag_2,
+    inner_rotor_conn_ag_mag_3,
+    inner_rotor_conn_ag_mag_4,
+    inner_rotor_conn_ag_mag_5,
+    inner_rotor_conn_ag_mag_6,
+    inner_rotor_conn_ag_mag_7,
+    inner_rotor_conn_ag_mag_8,
+    inner_rotor_conn_ag_mag_9,
+    inner_rotor_conn_ag_mag_10,
+    inner_rotor_conn_ag_mag_11,
+    fig=fig,
+    ax=ax[1],
+)
+
+plt.show()
