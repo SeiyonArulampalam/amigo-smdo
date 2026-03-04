@@ -6,6 +6,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from connectivity import InpParser
+from matplotlib.collections import PolyCollection
 
 
 class DofSource(am.Component):
@@ -144,6 +145,19 @@ class Mesh:
                     tri, u, levels=levels, colors="k", linewidths=0.3, alpha=0.5
                 )
 
+                # Overlay the mesh skeleton
+                gmsh_conn = self.get_conn(name, etype)
+                X2d = self.X[:, 0:2]
+                polygons = [X2d[row] for row in gmsh_conn]
+                mesh = PolyCollection(
+                    polygons,
+                    facecolor="none",
+                    edgecolor="black",
+                    linewidth=0.5,
+                    alpha=0.4,
+                )
+                ax.add_collection(mesh)
+                ax.set_aspect("equal")
         return ax
 
     def convert_conn(self, etype, conn):
@@ -346,7 +360,7 @@ class FiniteElement(am.Component):
 
 
 def weakform(soln, data=None, geo=None):
-    u = soln["rho"]
+    u = soln["u"]
     uvalue = u["value"]
     ugrad = u["grad"]
 
@@ -366,7 +380,7 @@ def weakform(soln, data=None, geo=None):
     return 0.5 * (uvalue**2 + basis.dot_product(ugrad, ugrad, n=2) - 2.0 * uvalue * f)
 
 
-soln_space = basis.SolutionSpace({"rho": "H1"})
+soln_space = basis.SolutionSpace({"u": "H1"})
 data_space = basis.SolutionSpace({"x": "H1", "y": "H1"})
 
 mesh = Mesh("magnet_order_1.inp")
@@ -397,6 +411,6 @@ flag = chol.factor()
 print("flag = ", flag)
 chol.solve(rhs.get_vector())
 
-u = rhs["src.rho"]
+u = rhs["src.u"]
 mesh.plot(u)
 plt.show()
