@@ -27,6 +27,90 @@ class DofSource(am.Component):
         return
 
 
+class SymmBCSource(am.Component):
+    def __init__(self, input_name=[], scale=[1.0, 1.0]):
+        super().__init__()
+
+        self.input_name = input_name
+        self.scale = scale
+
+        for name in self.input_name:
+            self.add_input(f"{name}0", value=1.0)
+            self.add_input(f"{name}1", value=1.0)
+        self.add_input("lam", value=1.0)
+        self.add_objective("obj")
+        return
+
+    def compute(self):
+        scale_node_0 = self.scale[0]
+        scale_node_1 = self.scale[1]
+        for name in self.input_name:
+            self.objective["obj"] = (
+                scale_node_0 * self.inputs[f"{name}0"]
+                + scale_node_1 * self.inputs[f"{name}1"]
+            ) * self.inputs["lam"]
+        return
+
+
+class SymmetryDegreesOfFreedom:
+    def __init__(self, mesh, bc={}):
+        self.mesh = mesh
+        self.bc = bc
+        return
+
+    def add_bc_source(self, model):
+        names = self.bc.keys()
+        for name in names:
+            # Loop through each bc_type name
+            bc_src = SymmBCSource(
+                input_name=self.bc[name]["input"],
+                scale=self.bc[name]["scale"],
+            )
+
+            line_tag = self.bc[name]["target"][0]
+            nnodes = mesh.get_num_nodes_on_bc(line_tag, "T3D2")
+
+            # Update the number of components based on whether to include start and end
+            if self.bc[name]["start"] == False:
+                nnodes -= 1
+            if self.bc[name]["end"] == False:
+                nnodes -= 1
+
+            model.add_component(
+                f"src_{name}",
+                nnodes,
+                bc_src,
+            )
+        return
+
+    def link_bc_dof(self, model):
+        names = self.bc.keys()
+        for name in names:
+            # Loop through each bc_type name
+            input_name = self.bc[name]["input"][0]  # Extract "u"
+
+            for i, line_tag in enumerate(self.bc[name]["target"]):
+                conn = mesh.get_bc_nodes(line_tag, "T3D2")
+
+                # Slice the nodes based on start and end requirement
+                if self.bc[name]["start"] == False and self.bc[name]["end"] == True:
+                    conn = conn[1:]
+                elif self.bc[name]["start"] == False and self.bc[name]["end"] == False:
+                    conn = conn[1:-1]
+                elif self.bc[name]["start"] == True and self.bc[name]["end"] == False:
+                    conn = conn[0:-1]
+
+                if self.bc[name]["flip"][i] == True:
+                    conn = np.flip(conn)
+
+                model.link(
+                    f"src_soln.{input_name}",
+                    f"src_{name}.{input_name}{i}",
+                    src_indices=conn,
+                )
+        return
+
+
 class DirichletBCSource(am.Component):
     def __init__(self, input_name=[]):
         super().__init__()
@@ -246,7 +330,7 @@ class Mesh:
                     linewidth=0.5,
                     alpha=0.4,
                 )
-                ax.add_collection(mesh)
+                # ax.add_collection(mesh)
 
                 if title is not None:
                     ax.set_title(title)
@@ -301,6 +385,7 @@ class Problem:
         data_space=[],
         geo_space=[],
         bc_map={},
+        sym_bc_map={},
         ndim=2,
     ):
 
@@ -313,6 +398,7 @@ class Problem:
 
         self.weakform_map = weakform_map
         self.bc_map = bc_map
+        self.sym_bc_map = sym_bc_map
 
         # Initialize Dof's
         # Take in the soln space -> removes "H1" input
@@ -337,6 +423,10 @@ class Problem:
         self.bc_dof = DirichletDegreesOfFreedom(
             self.mesh,
             self.bc_map,
+        )
+        self.sym_bc_dof = SymmetryDegreesOfFreedom(
+            self.mesh,
+            self.sym_bc_map,
         )
 
         return
@@ -389,6 +479,9 @@ class Problem:
         self.bc_dof.add_bc_source(model)
         self.bc_dof.link_bc_dof(model)
 
+        # Add symmetric bcs
+        self.sym_bc_dof.add_bc_source(model)
+        self.sym_bc_dof.link_bc_dof(model)
         return model
 
 
@@ -499,7 +592,7 @@ def weakform_NS_Magnet(soln, data=None, geo=None):
     x = geo["x"]["value"]
     y = geo["y"]["value"]
 
-    M = [0.0, 1.0]
+    M = [1.0, 0.0]
     f = basis.curl_2d(ugrad, M, n=2)
     wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2) - f)
     return wf
@@ -513,7 +606,7 @@ def weakform_SN_Magnet(soln, data=None, geo=None):
     x = geo["x"]["value"]
     y = geo["y"]["value"]
 
-    M = [0.0, -1.0]
+    M = [1.0, 0.0]
     f = basis.curl_2d(ugrad, M, n=2)
     wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2) - f)
     return wf
@@ -534,25 +627,37 @@ bc_map = {
         "start": True,
         "end": True,
     },
-    "LINE2": {
-        "type": "dirichlet",
-        "input": ["u"],
-        "start": False,
-        "end": False,
-    },
+    # "LINE2": {
+    #     "type": "dirichlet",
+    #     "input": ["u"],
+    #     "start": False,
+    #     "end": False,
+    # },
     "LINE3": {
         "type": "dirichlet",
         "input": ["u"],
         "start": True,
         "end": True,
     },
-    "LINE4": {
-        "type": "dirichlet",
+    # "LINE4": {
+    #     "type": "dirichlet",
+    #     "input": ["u"],
+    #     "start": False,
+    #     "end": False,
+    # },
+}
+
+symmetery_bc_map = {
+    "bruh": {
         "input": ["u"],
         "start": False,
         "end": False,
+        "target": ["LINE2", "LINE4"],
+        "flip": [False, True],
+        "scale": [1.0, -1.0],
     },
 }
+
 
 # Initialize the spaces
 soln_space = basis.SolutionSpace({"u": "H1"})
@@ -568,6 +673,7 @@ problem = Problem(
     data_space=data_space,
     geo_space=geo_space,
     bc_map=bc_map,
+    sym_bc_map=symmetery_bc_map,
     ndim=2,
 )
 

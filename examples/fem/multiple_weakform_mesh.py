@@ -46,7 +46,7 @@ w2 = 1.0  # width
 
 # Geometry for sub domain 3
 xc3 = 3.5  # bottom left point offset in x
-yc3 = 1.5  # bottom left point offset in y
+yc3 = 2.5  # bottom left point offset in y
 l3 = 1.0  # length
 w3 = 1.0  # width
 
@@ -115,6 +115,10 @@ gmsh.model.geo.synchronize()
 order = 1
 gmsh.model.mesh.setRecombine(2, 2)
 gmsh.model.mesh.setRecombine(2, 3)
+gmsh.model.mesh.setTransfiniteCurve(1, 20)
+gmsh.model.mesh.setTransfiniteCurve(2, 20)
+gmsh.model.mesh.setTransfiniteCurve(3, 20)
+gmsh.model.mesh.setTransfiniteCurve(4, 20)
 gmsh.model.mesh.generate(2)
 gmsh.model.mesh.setOrder(order)  # set the order
 
