@@ -163,17 +163,17 @@ class Mesh:
                 )
 
                 # Overlay the mesh skeleton
-                # gmsh_conn = self.get_conn(name, etype)
-                # X2d = self.X[:, 0:2]
-                # polygons = [X2d[row] for row in gmsh_conn]
-                # mesh = PolyCollection(
-                #     polygons,
-                #     facecolor="none",
-                #     edgecolor="black",
-                #     linewidth=0.5,
-                #     alpha=0.4,
-                # )
-                # ax.add_collection(mesh)
+                gmsh_conn = self.get_conn(name, etype)
+                X2d = self.X[:, 0:2]
+                polygons = [X2d[row] for row in gmsh_conn]
+                mesh = PolyCollection(
+                    polygons,
+                    facecolor="none",
+                    edgecolor="black",
+                    linewidth=0.5,
+                    alpha=0.4,
+                )
+                ax.add_collection(mesh)
 
                 if title is not None:
                     ax.set_title(title)
@@ -219,7 +219,9 @@ class Mesh:
 
 class Problem:
     # soln_space = object
-    def __init__(self, mesh, soln_space, weakform, data_space=[], geo_space=[], ndim=2):
+    def __init__(
+        self, mesh, soln_space, weakform_map={}, data_space=[], geo_space=[], ndim=2
+    ):
 
         self.mesh = mesh
         self.ndim = ndim  # Dimension of the problem
@@ -228,7 +230,7 @@ class Problem:
         self.data_space = data_space
         self.geo_space = geo_space
 
-        self.weakform = weakform
+        self.weakform_map = weakform_map
 
         # Initialize Dof's
         # Take in the soln space -> removes "H1" input
@@ -274,7 +276,7 @@ class Problem:
                     data_basis,
                     geo_basis,
                     quadrature,
-                    self.weakform,
+                    self.weakform_map[domain],
                 )
 
                 # Add the element/component
@@ -376,17 +378,50 @@ def weakform(soln, data=None, geo=None):
     return comp1
 
 
+def weakform_1(soln, data=None, geo=None):
+    u = soln["u"]
+    uvalue = u["value"]
+    ugrad = u["grad"]
+
+    x = geo["x"]["value"]
+    y = geo["y"]["value"]
+
+    f = am.sin(x) ** 2 * am.cos(y) ** 2
+    wf = 0.5 * (uvalue**2 + basis.dot_product(ugrad, ugrad, n=2) - 2.0 * uvalue * f)
+    return wf
+
+
+def weakform_2(soln, data=None, geo=None):
+    u = soln["u"]
+    uvalue = u["value"]
+    ugrad = u["grad"]
+
+    x = geo["x"]["value"]
+    y = geo["y"]["value"]
+
+    f = am.sin(x) ** 2 * am.cos(y) ** 2
+    wf = 0.5 * (uvalue**2 + basis.dot_product(ugrad, ugrad, n=2) - 2.0 * uvalue * f)
+    return wf
+
+
+# Define a weakform map to domains
+weakform_map = {
+    "SURFACE1": weakform_1,
+    "SURFACE2": weakform_2,
+    "SURFACE3": weakform_2,
+}
+
 # Initialize the spaces
-soln_space = basis.SolutionSpace({"u": "H1", "v": "H1"})
+soln_space = basis.SolutionSpace({"u": "H1"})
 data_space = basis.SolutionSpace({"rho": "H1"})
 geo_space = basis.SolutionSpace({"x": "H1", "y": "H1"})
 
-mesh = Mesh("magnet_order_1.inp")
+mesh = Mesh("weakform_test_mesh.inp")
 # mesh = Mesh("plate.inp")
 problem = Problem(
     mesh,
     soln_space,
-    weakform,
+    weakform_map,
     data_space=data_space,
     geo_space=geo_space,
     ndim=2,
@@ -429,11 +464,13 @@ csr_mat = am.tocsr(mat)
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
 u = ans_local.get_array()[model.get_indices("src_soln.u")]
-v = ans_local.get_array()[model.get_indices("src_soln.v")]
-print(u)
-print(v)
-
-fig, ax = plt.subplots(ncols=2)
-mesh.plot(u, ax=ax[0], title="u")
-mesh.plot(v, ax=ax[1], title="v")
+mesh.plot(u)
 plt.show()
+# v = ans_local.get_array()[model.get_indices("src_soln.v")]
+# print(u)
+# print(v)
+
+# fig, ax = plt.subplots(ncols=2)
+# mesh.plot(u, ax=ax[0], title="u")
+# mesh.plot(v, ax=ax[1], title="v")
+# plt.show()

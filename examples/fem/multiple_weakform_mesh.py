@@ -31,8 +31,8 @@ def check_areas(X, conn):
 
 gmsh.initialize()
 gmsh.model.add("multiple_weakform_test")
-lc = 5e-1
-lc1 = 3e-1
+lc = 4e-1
+lc1 = 4e-2
 
 # Domain 1 geometry
 l = 5.0  # length
@@ -103,13 +103,13 @@ geom.addPlaneSurface([3], 3)
 gmsh.model.geo.synchronize()
 
 # Defin physical groups
-gmsh.model.addPhysicalGroup(1, [1], name="Shared Interface")
-gmsh.model.addPhysicalGroup(1, [4], name="PBC Left Edge")
-gmsh.model.addPhysicalGroup(1, [2], name="PBC Right Edge")
-gmsh.model.addPhysicalGroup(1, [3], name="Dirichlet BC Edge")
-gmsh.model.addPhysicalGroup(2, [1], name="Domain 1")
-gmsh.model.addPhysicalGroup(2, [2], name="Domain 2")
-gmsh.model.addPhysicalGroup(2, [3], name="Domain 3")
+# gmsh.model.addPhysicalGroup(1, [1], name="Shared Interface")
+# gmsh.model.addPhysicalGroup(1, [4], name="PBC Left Edge")
+# gmsh.model.addPhysicalGroup(1, [2], name="PBC Right Edge")
+# gmsh.model.addPhysicalGroup(1, [3], name="Dirichlet BC Edge")
+# gmsh.model.addPhysicalGroup(2, [1], name="Domain 1")
+# gmsh.model.addPhysicalGroup(2, [2], name="Domain 2")
+# gmsh.model.addPhysicalGroup(2, [3], name="Domain 3")
 
 # Generate 2d mesh
 order = 1
