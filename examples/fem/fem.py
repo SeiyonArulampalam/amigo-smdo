@@ -695,7 +695,6 @@ data_space = basis.SolutionSpace({"rho": "H1"})
 geo_space = basis.SolutionSpace({"x": "H1", "y": "H1"})
 
 mesh = Mesh("weakform_test_mesh.inp")
-# mesh = Mesh("plate.inp")
 problem = Problem(
     mesh,
     soln_space,
@@ -706,14 +705,13 @@ problem = Problem(
     sym_bc_map=symmetery_bc_map,
     ndim=2,
 )
-
 model = problem.create_model("test")
 
 model.build_module()
 model.initialize(order_type=am.OrderingType.NESTED_DISSECTION)
 
 # print("num_variables = ", model.num_variables)
-problem = model.get_problem()
+p = model.get_problem()
 
 # Set the problem data
 data = model.get_data_vector()
@@ -731,14 +729,14 @@ data["src_geo.y"] = mesh.X[:, 1]
 # print("flag = ", flag)
 # chol.solve(rhs.get_vector())
 
-mat = problem.create_matrix()
+mat = p.create_matrix()
 alpha = 1.0
-x = problem.create_vector()
-ans = problem.create_vector()
-g = problem.create_vector()
-rhs = problem.create_vector()
-problem.hessian(alpha, x, mat)
-problem.gradient(alpha, x, g)
+x = p.create_vector()
+ans = p.create_vector()
+g = p.create_vector()
+rhs = p.create_vector()
+p.hessian(alpha, x, mat)
+p.gradient(alpha, x, g)
 csr_mat = am.tocsr(mat)
 
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
