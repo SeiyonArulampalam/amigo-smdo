@@ -298,17 +298,30 @@ class Mesh:
     def get_num_nodes_on_bc(self, name, etype):
         return self.parser.get_edge_node(name, etype).shape[0]
 
-    def plot(self, u, ax=None, nlevels=30, cmap="coolwarm", title=None):
-        min_level = np.min(u)
-        max_level = np.max(u)
+    def plot(
+        self,
+        u,
+        ax=None,
+        nlevels=30,
+        cmap="coolwarm",
+        title=None,
+        x_offset=0.0,
+        y_offset=0.0,
+        min_level=None,
+        max_level=None,
+    ):
+        if min_level == None or max_level == None:
+            min_level = np.min(u)
+            max_level = np.max(u)
+
         levels = np.linspace(min_level, max_level, nlevels)
 
         if ax is None:
             fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
 
         volumes = self.get_domains()
-        x = self.X[:, 0]
-        y = self.X[:, 1]
+        x = self.X[:, 0] + x_offset
+        y = self.X[:, 1] + y_offset
 
         for name in volumes:
             for etype in volumes[name]:
@@ -391,7 +404,6 @@ class Problem:
         sym_bc_map={},
         ndim=2,
     ):
-
         self.mesh = mesh
         self.ndim = ndim  # Dimension of the problem
 
@@ -444,13 +456,14 @@ class Problem:
 
         # Build the elements for all domains
         domains = self.mesh.get_domains()
+        mesh_name = self.weakform_map["mesh_name"]
         for domain in domains:
             for etype in domains[domain]:
                 # Each element type has a dictionary of solution basis's
                 soln_basis = {}
 
                 # Build a finite-element for each weak form
-                elem_name = f"Element{etype}_{domain}"
+                elem_name = f"{mesh_name}_Element{etype}_{domain}"
 
                 soln_basis = self.soln_dof.get_basis(etype)
                 data_basis = self.data_dof.get_basis(etype)
@@ -610,18 +623,31 @@ def weakform_SN_Magnet(soln, data=None, geo=None):
     x = geo["x"]["value"]
     y = geo["y"]["value"]
 
-    M = [0.0, 0.0]
+    M = [0.0, -1.0]
     f = basis.curl_2d(ugrad, M, n=2)
     wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2) - f)
     return wf
 
 
 # Define a weakform map to domains
-weakform_map = {
+weakform_map_domain_0 = {
+    "mesh_name": "Domain0",
+    "SURFACE1": weakform_air,
+    "SURFACE2": weakform_SN_Magnet,
+    "SURFACE3": weakform_air,
+}
+
+weakform_map_domain_1 = {
+    "mesh_name": "Domain1",
     "SURFACE1": weakform_air,
     "SURFACE2": weakform_NS_Magnet,
-    "SURFACE3": weakform_SN_Magnet,
+    "SURFACE3": weakform_air,
 }
+
+weakform_map = [
+    weakform_map_domain_0,
+    weakform_map_domain_1,
+]
 
 # Boundary Condition
 dirichlet_bc_map_domain_1 = {
@@ -631,20 +657,6 @@ dirichlet_bc_map_domain_1 = {
         "input": ["u"],
         "start": True,
         "end": True,
-    },
-    "DirichletLine2": {
-        "type": "dirichlet",
-        "target": "LINE2",
-        "input": ["u"],
-        "start": False,
-        "end": False,
-    },
-    "DirichletLine4": {
-        "type": "dirichlet",
-        "target": "LINE4",
-        "input": ["u"],
-        "start": False,
-        "end": False,
     },
 }
 
@@ -656,33 +668,27 @@ dirichlet_bc_map_domain_2 = {
         "start": True,
         "end": True,
     },
-    "DirichletLine2": {
-        "type": "dirichlet",
-        "target": "LINE2",
-        "input": ["u"],
-        "start": False,
-        "end": False,
-    },
-    "DirichletLine4": {
-        "type": "dirichlet",
-        "target": "LINE4",
-        "input": ["u"],
-        "start": False,
-        "end": False,
-    },
 }
 
-# No symmetry bcs in each respective domain
+# Lucky case: symm line tags are the same for both mesh
 symmetery_bc_map = {
-    # "symm": {
-    #     "input": ["u"],
-    #     "start": False,
-    #     "end": False,
-    #     "target": ["LINE2", "LINE4"],
-    #     "flip": [False, False],
-    #     "scale": [1.0, -1.0],
-    # },
+    "symm": {
+        "input": ["u"],
+        "start": False,
+        "end": False,
+        "target": ["LINE2", "LINE4"],
+        "flip": [False, False],
+        "scale": [1.0, 1.0],
+    },
 }
+# Know number of points along shared edge
+npts_shared = 20
+
+# Domain1 slides to the right by an integer value
+# 5 is the length of the shared edge
+slide_number = 10
+x_offset = slide_number * (5.0 / npts_shared)
+
 
 # Define meshes
 meshes = ["weakform_test_mesh.inp", "weakform_test_mesh.inp"]
@@ -701,7 +707,7 @@ for i, fname in enumerate(meshes):
     problem = Problem(
         mesh,
         soln_space,
-        weakform_map,
+        weakform_map[i],
         data_space=data_space,
         geo_space=geo_space,
         dirichlet_bc_map=dirichlet_bc_meshes[i],
@@ -717,11 +723,23 @@ nodes_line_3 = mesh_domain.get_bc_nodes("LINE3", "T3D2")
 nodes_line_3 = np.flip(nodes_line_3)
 
 # Add a continuity boundary condition to the global model
-for i in range(len(nodes_line_1)):
+nodes_line_1_shared = nodes_line_1[slide_number:]
+nodes_line_3_shared = nodes_line_3[0:-slide_number]
+for i in range(len(nodes_line_1_shared)):
     global_model.link(
-        f"Domain0.src_soln.u[{nodes_line_1[i]}]",
-        f"Domain1.src_soln.u[{nodes_line_3[i]}]",
+        f"Domain0.src_soln.u[{nodes_line_1_shared[i]}]",
+        f"Domain1.src_soln.u[{nodes_line_3_shared[i]}]",
     )
+
+# Share the hanging edges
+nodes_line_1_hanging = nodes_line_1[0:slide_number]
+nodes_line_3_hanging = nodes_line_3[-slide_number:]
+for i in range(len(nodes_line_1_hanging)):
+    global_model.link(
+        f"Domain0.src_soln.u[{nodes_line_1_hanging[i]}]",
+        f"Domain1.src_soln.u[{nodes_line_3_hanging[i]}]",
+    )
+
 
 global_model.build_module()
 global_model.initialize(order_type=am.OrderingType.NESTED_DISSECTION)
@@ -750,9 +768,30 @@ ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
 u_domain0 = ans_local.get_array()[global_model.get_indices("Domain0.src_soln.u")]
 u_domain1 = ans_local.get_array()[global_model.get_indices("Domain1.src_soln.u")]
-fig, ax = plt.subplots(nrows=2)
-mesh.plot(u_domain0, ax=ax[0])
-mesh.plot(u_domain1, ax=ax[1])
+
+print(np.allclose(u_domain0[nodes_line_1_shared], u_domain1[nodes_line_3_shared]))
+print(np.allclose(u_domain0[nodes_line_1_hanging], u_domain1[nodes_line_3_hanging]))
+
+max_domain = np.max(np.maximum(u_domain0, u_domain1))
+min_domain = np.min(np.minimum(u_domain0, u_domain1))
+
+fig, ax = plt.subplots()
+mesh.plot(
+    u_domain0,
+    ax=ax,
+    x_offset=0.0,
+    y_offset=0.0,
+    max_level=max_domain,
+    min_level=min_domain,
+)
+mesh.plot(
+    u_domain1,
+    ax=ax,
+    x_offset=x_offset,
+    y_offset=-5.0,
+    max_level=max_domain,
+    min_level=min_domain,
+)
 plt.show()
 
 # x = problem.create_vector()
