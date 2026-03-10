@@ -325,12 +325,12 @@ p = main.get_problem()
 
 # Set the problem data
 data = main.get_data_vector()
-data["outer_rotor.src_geo.x"] = meshes["outer_rotor"].X[:, 0] * 1e-3
-data["outer_rotor.src_geo.y"] = meshes["outer_rotor"].X[:, 1] * 1e-3
-data["stator.src_geo.x"] = meshes["stator"].X[:, 0] * 1e-3
-data["stator.src_geo.y"] = meshes["stator"].X[:, 1] * 1e-3
-data["inner_rotor.src_geo.x"] = meshes["inner_rotor"].X[:, 0] * 1e-3
-data["inner_rotor.src_geo.y"] = meshes["inner_rotor"].X[:, 1] * 1e-3
+data["outer_rotor.src_geo.x"] = meshes["outer_rotor"].X[:, 0] 
+data["outer_rotor.src_geo.y"] = meshes["outer_rotor"].X[:, 1] 
+data["stator.src_geo.x"] = meshes["stator"].X[:, 0] 
+data["stator.src_geo.y"] = meshes["stator"].X[:, 1] 
+data["inner_rotor.src_geo.x"] = meshes["inner_rotor"].X[:, 0] 
+data["inner_rotor.src_geo.y"] = meshes["inner_rotor"].X[:, 1] 
 
 mat = p.create_matrix()
 alpha = 1.0
