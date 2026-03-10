@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from connectivity import InpParser
 from matplotlib.collections import PolyCollection
-from scipy.sparse.linalg import spsolve
 
 
 class DofSource(am.Component):
@@ -292,8 +291,11 @@ class Mesh:
     def get_num_elements(self, name, etype):
         return self.parser.get_conn(name, etype).shape[0]
 
-    def get_bc_nodes(self, name, etype):
-        return self.parser.get_edge_node(name, etype)
+    def get_bc_nodes(self, name, etype, flip=False):
+        conn = self.parser.get_edge_node(name, etype)
+        if flip == True:
+            conn = np.flip(conn)
+        return conn
 
     def get_num_nodes_on_bc(self, name, etype):
         return self.parser.get_edge_node(name, etype).shape[0]
@@ -552,43 +554,6 @@ class FiniteElement(am.Component):
         return
 
 
-def weakform(soln, data=None, geo=None):
-    u = soln["u"]
-    v = soln["v"]
-
-    uvalue = u["value"]
-    ugrad = u["grad"]
-
-    vvalue = v["value"]
-    vgrad = v["grad"]
-
-    x = geo["x"]["value"]
-    y = geo["y"]["value"]
-
-    # f = am.sin(x) ** 2 * am.cos(y) ** 2
-    # comp1 = 0.5 * (uvalue**2 + basis.dot_product(ugrad, ugrad, n=2) - 2.0 * uvalue * f)
-
-    alpha = 1.0
-    pi = 3.14159265358979
-
-    f1 = 2 * pi**2 * am.sin(pi * x) * am.sin(pi * y) + alpha * am.cos(
-        pi * x
-    ) * am.cos(pi * y)
-    f2 = 2 * pi**2 * am.cos(pi * x) * am.cos(pi * y) + alpha * am.sin(
-        pi * x
-    ) * am.sin(pi * y)
-
-    comp1 = (
-        basis.dot_product(ugrad, ugrad, n=2)
-        + alpha * uvalue * uvalue
-        + f1 * uvalue
-        + basis.dot_product(vgrad, vgrad, n=2)
-        + alpha * vvalue * vvalue
-        + f2 * vvalue
-    )
-    return comp1
-
-
 def weakform_air(soln, data=None, geo=None):
     u = soln["u"]
     uvalue = u["value"]
@@ -597,7 +562,37 @@ def weakform_air(soln, data=None, geo=None):
     x = geo["x"]["value"]
     y = geo["y"]["value"]
 
-    wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2))
+    alpha = 1.0
+
+    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2))
+    return wf
+
+
+def weakform_stator_iron(soln, data=None, geo=None):
+    u = soln["u"]
+    uvalue = u["value"]
+    ugrad = u["grad"]
+
+    x = geo["x"]["value"]
+    y = geo["y"]["value"]
+
+    alpha = 1.0 / 7000.0
+
+    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2))
+    return wf
+
+
+def weakform_back_iron(soln, data=None, geo=None):
+    u = soln["u"]
+    uvalue = u["value"]
+    ugrad = u["grad"]
+
+    x = geo["x"]["value"]
+    y = geo["y"]["value"]
+
+    alpha = 1.0 / 7000.0
+
+    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2))
     return wf
 
 
@@ -609,9 +604,13 @@ def weakform_NS_Magnet(soln, data=None, geo=None):
     x = geo["x"]["value"]
     y = geo["y"]["value"]
 
+    pi = 3.14159265358979
+    mu0 = 4 * pi * 10**-7
+    alpha = 1 / 1.05
+
     M = [0.0, 1.0]
     f = basis.curl_2d(ugrad, M, n=2)
-    wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2) - f)
+    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2) - mu0 * f)
     return wf
 
 
@@ -623,7 +622,10 @@ def weakform_SN_Magnet(soln, data=None, geo=None):
     x = geo["x"]["value"]
     y = geo["y"]["value"]
 
+    pi = 3.14159265358979
+    mu0 = 4 * pi * 10**-7
+    alpha = 1.0 / 1.05
     M = [0.0, -1.0]
     f = basis.curl_2d(ugrad, M, n=2)
-    wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2) - f)
+    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2) - mu0 * f)
     return wf
