@@ -418,19 +418,19 @@ class Problem:
         # Initialize Dof's
         # Take in the soln space -> removes "H1" input
         self.soln_dof = DegreesOfFreedom(
-            mesh,
+            self.mesh,
             self.soln_space,
             kind="input",
             name="soln",
         )
         self.geo_dof = DegreesOfFreedom(
-            mesh,
+            self.mesh,
             self.geo_space,
             kind="data",
             name="geo",
         )
         self.data_dof = DegreesOfFreedom(
-            mesh,
+            self.mesh,
             self.data_space,
             kind="data",
             name="data",
@@ -627,4 +627,3 @@ def weakform_SN_Magnet(soln, data=None, geo=None):
     f = basis.curl_2d(ugrad, M, n=2)
     wf = 0.5 * (basis.dot_product(ugrad, ugrad, n=2) - f)
     return wf
-
