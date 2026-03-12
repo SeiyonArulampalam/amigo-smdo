@@ -126,7 +126,6 @@ class ConstantBasis(Basis):
             value = orig[name]["value"]
             soln[name] = {
                 "value": value,
-                # "grad": [0.0, 0.0],
             }
         return soln
 
@@ -140,7 +139,6 @@ class ConstantBasis(Basis):
 
             soln[name] = {
                 "value": u[0],
-                # "grad": [0.0, 0.0],
             }
         return soln
 
