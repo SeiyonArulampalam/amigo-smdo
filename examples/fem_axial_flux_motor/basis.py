@@ -116,6 +116,35 @@ class Basis:
                 comp.add_data(name, shape=(self.nnodes,))
 
 
+class ConstantBasis(Basis):
+    def __init__(self, names, nnodes=1, kind="input"):
+        super().__init__(names, nnodes=nnodes, kind=kind)
+
+    def transform(self, detJ, Jinv, orig):
+        soln = {}
+        for name in orig:
+            value = orig[name]["value"]
+            soln[name] = {
+                "value": value,
+                # "grad": [0.0, 0.0],
+            }
+        return soln
+
+    def eval(self, comp, pt):
+        soln = {}
+        for name in self.names:
+            if self.kind == "input":
+                u = comp.inputs[name]
+            elif self.kind == "data":
+                u = comp.data[name]
+
+            soln[name] = {
+                "value": u[0],
+                # "grad": [0.0, 0.0],
+            }
+        return soln
+
+
 class LagrangeBasis2D(Basis):
     def __init__(self, names, nnodes=1, kind="input"):
         super().__init__(names, nnodes=nnodes, kind=kind)
@@ -385,7 +414,7 @@ class QuadQuadrature(Quadrature):
 
 class SolutionSpace:
     def __init__(self, mapping):
-        self._allowed_spaces = ["H1", "L2", "H(div)", "H(curl)"]
+        self._allowed_spaces = ["H1", "L2", "H(div)", "H(curl)", "const"]
 
         self.names = {}
         for name in mapping:

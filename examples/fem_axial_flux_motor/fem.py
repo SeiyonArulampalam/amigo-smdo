@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from connectivity import InpParser
 from matplotlib.collections import PolyCollection
+from scipy.sparse.linalg import spsolve
 
 
 class DofSource(am.Component):
@@ -195,48 +196,96 @@ class DegreesOfFreedom:
 
     def add_source(self, model):
         # Get the names of things associated with H1
-        names = self.space.get_names("H1")  # u, v
 
-        # Create amigo source component with input names and geo names
-        input_names = []
-        data_names = []
-        if self.kind == "input":
-            input_names = names
-        elif self.kind == "data":
-            data_names = names
+        for sp in ["H1", "const"]:
+            names = self.space.get_names(sp)
 
-        dof_src = DofSource(input_names=input_names, data_names=data_names)
+            #! Error -> can not add two of the same comps
+            # Move on to next space if the names are empty
+            if len(names) == 0:
+                continue
 
-        # Add global mesh source component
-        nnodes = self.mesh.get_num_nodes()
-        model.add_component(f"src_{self.name}", nnodes, dof_src)
-        # src_soln, src_data, src_geo
+            # Create amigo source component with input names and geo names
+            input_names = []
+            data_names = []
+            if self.kind == "input":
+                input_names = names
+            elif self.kind == "data":
+                data_names = names
+
+            dof_src = DofSource(input_names=input_names, data_names=data_names)
+
+            # Add global mesh source component
+            if sp == "H1":
+                nnodes = self.mesh.get_num_nodes()
+                model.add_component(f"src_{self.name}", nnodes, dof_src)
+                # print(f"src_{self.name}")
+
+            elif sp == "const":
+                nsurfaces = self.mesh.get_num_surfaces()
+                model.add_component(f"src_{self.name}", nsurfaces, dof_src)
+                # print(f"src_{self.name}")
 
     def link_dof(self, model, domain, etype, elem_name):
-        names = self.space.get_names("H1")
-        conn = self.mesh.get_conn(domain, etype)
-        for name in names:
-            model.link(
-                f"src_{self.name}.{name}", f"{elem_name}.{name}", src_indices=conn
-            )
+        # names = self.space.get_names("H1")
+        for sp in ["H1", "const"]:
+            names = self.space.get_names(sp)
+
+            #! move on if the names are empty
+            if len(names) == 0:
+                continue
+
+            if sp == "H1":
+                conn = self.mesh.get_conn(domain, etype)
+                for name in names:
+                    model.link(
+                        f"src_{self.name}.{name}",
+                        f"{elem_name}.{name}",
+                        src_indices=conn,
+                    )
+                    # print(f"src_{self.name}.{name}", f"{elem_name}.{name}")
+
+            elif sp == "const":
+                gmsh_surf_index = int(domain.replace("SURFACE", ""))
+                surf_index = gmsh_surf_index - 1
+
+                for name in names:
+                    model.link(
+                        f"src_{self.name}.{name}[{surf_index}]",
+                        f"{elem_name}.{name}[:]",
+                    )
+
+                    # print(
+                    #     f"src_{self.name}.{name}[{surf_index}]",
+                    #     f"{elem_name}.{name}[:]",
+                    # )
         return
 
     def get_basis(self, etype):
         basis_list = []
 
-        for sp in ["H1"]:
-            # self._get_basis(etype, sp, names, kind) # names and kind come from space info
+        for sp in ["H1", "const"]:
             names = self.space.get_names(sp)
+
+            #! move on if the names are empty
+            if len(names) == 0:
+                continue
+
             basis_list.append(self._get_basis(etype, sp, names, self.kind))
+
         return basis.BasisCollection(basis_list)
 
     def _get_basis(self, etype, space, names=[], kind="input"):
         if etype == "CPS3":
             if space == "H1":
                 return basis.TriangleLagrangeBasis(1, names, kind=kind)
+            elif space == "const":
+                return basis.ConstantBasis(names=names, kind=kind)
         elif etype == "CPS4":
             if space == "H1":
                 return basis.QuadLagrangeBasis(1, names, kind=kind)
+            elif space == "const":
+                return basis.ConstantBasis(names=names, kind=kind)
         elif etype == "CPS6":
             if space == "H1":
                 return basis.TriangleLagrangeBasis(2, names, kind=kind)
@@ -291,6 +340,9 @@ class Mesh:
     def get_num_elements(self, name, etype):
         return self.parser.get_conn(name, etype).shape[0]
 
+    def get_num_surfaces(self):
+        return self.parser.get_num_surfaces()
+
     def get_bc_nodes(self, name, etype, flip=False):
         conn = self.parser.get_edge_node(name, etype)
         if flip == True:
@@ -304,7 +356,7 @@ class Mesh:
         self,
         u,
         ax=None,
-        nlevels=30,
+        nlevels=20,
         cmap="coolwarm",
         title=None,
         x_offset=0.0,
@@ -452,8 +504,13 @@ class Problem:
         """Create and link the Amigo model"""
         model = am.Model(module_name)
 
+        # print("\nsoln_dof source called")
         self.soln_dof.add_source(model)
+
+        # print("\ndata_dof source called")
         self.data_dof.add_source(model)
+
+        # print("\ngeo_dof source called")
         self.geo_dof.add_source(model)
 
         # Build the elements for all domains
@@ -489,8 +546,13 @@ class Problem:
                 model.add_component(elem_name, nelems, elem)
 
                 # Link all the element dof to the component
+                # print("\nsoln_dof link called")
                 self.soln_dof.link_dof(model, domain, etype, elem_name)
+
+                # print("\ndata_dof link called")
                 self.data_dof.link_dof(model, domain, etype, elem_name)
+
+                # print("\ngeo_dof link called")
                 self.geo_dof.link_dof(model, domain, etype, elem_name)
 
         # Add BC components and links
@@ -550,7 +612,9 @@ class FiniteElement(am.Component):
         data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
 
         # Add the contributions directly to the Lagrangian
-        self.objective["obj"] = quad_weight * detJ * self.weakform(soln_phys, geo=geo)
+        self.objective["obj"] = (
+            quad_weight * detJ * self.weakform(soln_phys, data=data_phys, geo=geo)
+        )
         return
 
 
@@ -564,7 +628,7 @@ def weakform_air(soln, data=None, geo=None):
 
     alpha = 1.0
 
-    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2))
+    wf = 0.5 * alpha * basis.dot_product(ugrad, ugrad, n=2)
     return wf
 
 
@@ -578,7 +642,7 @@ def weakform_stator_iron(soln, data=None, geo=None):
 
     alpha = 1.0 / 7000.0
 
-    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2))
+    wf = 0.5 * alpha * basis.dot_product(ugrad, ugrad, n=2)
     return wf
 
 
@@ -592,7 +656,7 @@ def weakform_back_iron(soln, data=None, geo=None):
 
     alpha = 1.0 / 7000.0
 
-    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2))
+    wf = 0.5 * alpha * basis.dot_product(ugrad, ugrad, n=2)
     return wf
 
 
@@ -608,9 +672,9 @@ def weakform_NS_Magnet(soln, data=None, geo=None):
     mu0 = 4 * pi * 10**-7
     alpha = 1 / 1.05
 
-    M = [0.0, 1.0]
+    M = [0.0, -1.0e6]
     f = basis.curl_2d(ugrad, M, n=2)
-    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2) - mu0 * f)
+    wf = 0.5 * alpha * basis.dot_product(ugrad, ugrad, n=2) - mu0 * f
     return wf
 
 
@@ -625,7 +689,19 @@ def weakform_SN_Magnet(soln, data=None, geo=None):
     pi = 3.14159265358979
     mu0 = 4 * pi * 10**-7
     alpha = 1.0 / 1.05
-    M = [0.0, -1.0]
+    M = [0.0, 1.0e6]
     f = basis.curl_2d(ugrad, M, n=2)
-    wf = 0.5 * (alpha * basis.dot_product(ugrad, ugrad, n=2) - mu0 * f)
+    wf = 0.5 * alpha * basis.dot_product(ugrad, ugrad, n=2) - mu0 * f
+    return wf
+
+
+def weakform_coils(soln, data=None, geo=None):
+    u = soln["u"]
+    uvalue = u["value"]
+    ugrad = u["grad"]
+
+    Jz = data["Jz"]["value"]
+    f = Jz * uvalue
+
+    wf = 0.5 * basis.dot_product(ugrad, ugrad, n=2) - f
     return wf
