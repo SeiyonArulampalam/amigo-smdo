@@ -50,7 +50,8 @@ class Maxwell(am.Component):
     def compute(self, n=None):
         # Define gauss quad weights and points
         qwts = [1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0]
-        qxi_qeta = [[0.5, 0.5], [0.5, 0.0], [0.0, 0.5]]
+        # qxi_qeta = [[0.5, 0.5], [0.5, 0.0], [0.0, 0.5]]
+        qxi_qeta = [[1 / 6, 1 / 6], [2 / 3, 1 / 6], [1 / 6, 2 / 3]]
         xi, eta = qxi_qeta[n]
 
         # Extract inputs
@@ -122,7 +123,8 @@ class Coil(am.Component):
 
         # Define gauss quad weights and points
         qwts = [1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0]
-        qxi_qeta = [[0.5, 0.5], [0.5, 0.0], [0.0, 0.5]]
+        # qxi_qeta = [[0.5, 0.5], [0.5, 0.0], [0.0, 0.5]]
+        qxi_qeta = [[1 / 6, 1 / 6], [2 / 3, 1 / 6], [1 / 6, 2 / 3]]
         xi, eta = qxi_qeta[n]
 
         # Extract mesh data
@@ -176,7 +178,8 @@ class Magnets(am.Component):
     def compute(self, n=None):
         # Define gauss quad weights and points
         qwts = [1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0]
-        qxi_qeta = [[0.5, 0.5], [0.5, 0.0], [0.0, 0.5]]
+        # qxi_qeta = [[0.5, 0.5], [0.5, 0.0], [0.0, 0.5]]
+        qxi_qeta = [[1 / 6, 1 / 6], [2 / 3, 1 / 6], [1 / 6, 2 / 3]]
         xi, eta = qxi_qeta[n]
 
         # Extract inputs
