@@ -8,6 +8,9 @@ include/amigo_include_paths.h
 *.pdf
 *.aux
 *.log
+*.jpg
+*.jpeg
+*.svg
 
 # Ignore anything in the pycache
 **/__pycache__
@@ -17,8 +20,6 @@ include/amigo_include_paths.h
 /examples/**/*.h
 /examples/**/*.cpp
 /examples/**/*.so
-/examples/**/*.png
-/examples/**/*.svg
 /examples/**/*.json
 /examples/**/*.pyd
 /examples/**/*.html
