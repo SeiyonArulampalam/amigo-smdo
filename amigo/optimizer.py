@@ -198,7 +198,9 @@ class MumpsSolver(_HessianDiagMixin):
                 self._libmumps = ctypes.CDLL("libdmumps.dll")
             else:
                 lib_dir = os.environ.get("MUMPS_LIB_DIR", "")
-                lib_path = os.path.join(lib_dir, "libdmumps.so") if lib_dir else "libdmumps.so"
+                lib_path = (
+                    os.path.join(lib_dir, "libdmumps.so") if lib_dir else "libdmumps.so"
+                )
                 self._libmumps = ctypes.CDLL(lib_path)
         except OSError:
             raise ImportError(
