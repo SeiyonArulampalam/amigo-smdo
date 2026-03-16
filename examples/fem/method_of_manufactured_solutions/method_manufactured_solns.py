@@ -51,41 +51,44 @@ parser.add_argument(
 args = parser.parse_args()
 
 meshes = {"Mesh": Mesh("plate.inp")}
-dirichlet_bc_meshes = {
-    "Mesh": {
-        "DirichletLine1": {
-            "type": "dirichlet",
-            "target": "LINE1",
-            "input": ["u"],
-            "start": True,
-            "end": True,
-        },
-        "DirichletLine2": {
-            "type": "dirichlet",
-            "target": "LINE2",
-            "input": ["u"],
-            "start": False,
-            "end": False,
-        },
-        "DirichletLine3": {
-            "type": "dirichlet",
-            "target": "LINE3",
-            "input": ["u"],
-            "start": True,
-            "end": True,
-        },
-        "DirichletLine4": {
-            "type": "dirichlet",
-            "target": "LINE4",
-            "input": ["u"],
-            "start": False,
-            "end": False,
-        },
+
+dirichlet_bcs = {
+    "DirichletLine1": {
+        "type": "dirichlet",
+        "target": "LINE1",
+        "input": ["u"],
+        "start": True,
+        "end": True,
+    },
+    "DirichletLine2": {
+        "type": "dirichlet",
+        "target": "LINE2",
+        "input": ["u"],
+        "start": False,
+        "end": False,
+    },
+    "DirichletLine3": {
+        "type": "dirichlet",
+        "target": "LINE3",
+        "input": ["u"],
+        "start": True,
+        "end": True,
+    },
+    "DirichletLine4": {
+        "type": "dirichlet",
+        "target": "LINE4",
+        "input": ["u"],
+        "start": False,
+        "end": False,
     },
 }
-
-# Symmetric BCs mapping for each mesh
-symm_bc_meshes = {"Mesh": {}}
+symmetric_bcs = {}
+bc_map = {
+    "Mesh": {
+        "dirichlet": dirichlet_bcs,
+        "symmetric": symmetric_bcs,
+    }
+}
 
 # Weak form mapping for each mesh
 weakform_map = {
@@ -122,7 +125,7 @@ for mesh_name, mesh in meshes.items():
         data_space,
         geo_space,
         weakform_map=wf_mesh_map[mesh_name],
-        dirichlet_bc_map=dirichlet_bc_meshes[mesh_name],
+        bc_map=bc_map[mesh_name],
         output_map=output_map,
     )
     sub_model = problem.create_model(mesh_name)

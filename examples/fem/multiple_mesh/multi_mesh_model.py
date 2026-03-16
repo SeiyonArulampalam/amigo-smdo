@@ -41,48 +41,57 @@ meshes = {
 }
 
 # Define Dirichlet BCs for each mesh
-dirichlet_bc_meshes = {
-    "Mesh0": {
-        "DirichletLine3": {
-            "type": "dirichlet",
-            "target": "LINE3",
-            "input": ["u"],
-            "start": True,
-            "end": True,
-        },
+mesh0_dirichlet_bcs = {
+    "DirichletLine3": {
+        "type": "dirichlet",
+        "target": "LINE3",
+        "input": ["u"],
+        "start": True,
+        "end": True,
     },
-    "Mesh1": {
-        "DirichletLine1": {
-            "type": "dirichlet",
-            "target": "LINE1",
-            "input": ["u"],
-            "start": True,
-            "end": True,
-        },
+}
+
+mesh1_dirichlet_bcs = {
+    "DirichletLine1": {
+        "type": "dirichlet",
+        "target": "LINE1",
+        "input": ["u"],
+        "start": True,
+        "end": True,
     },
 }
 
 # Symmetric BCs mapping for each mesh
-symm_bc_meshes = {
+mesh0_symm_bcs = {
+    "SymmMesh0": {
+        "input": ["u"],
+        "start": False,
+        "end": False,
+        "target": ["LINE2", "LINE4"],
+        "flip": [False, False],
+        "scale": [1.0, -1.0],
+    },
+}
+
+mesh1_symm_bcs = {
+    "SymmMesh1": {
+        "input": ["u"],
+        "start": False,
+        "end": False,
+        "target": ["LINE2", "LINE4"],
+        "flip": [False, False],
+        "scale": [1.0, -1.0],
+    },
+}
+
+bc_map = {
     "Mesh0": {
-        "SymmMesh0": {
-            "input": ["u"],
-            "start": False,
-            "end": False,
-            "target": ["LINE2", "LINE4"],
-            "flip": [False, False],
-            "scale": [1.0, -1.0],
-        },
+        "dirichlet": mesh0_dirichlet_bcs,
+        "symmetric": mesh0_symm_bcs,
     },
     "Mesh1": {
-        "SymmMesh1": {
-            "input": ["u"],
-            "start": False,
-            "end": False,
-            "target": ["LINE2", "LINE4"],
-            "flip": [False, False],
-            "scale": [1.0, -1.0],
-        },
+        "dirichlet": mesh1_dirichlet_bcs,
+        "symmetric": mesh1_symm_bcs,
     },
 }
 
@@ -114,7 +123,7 @@ for mesh_name, mesh in meshes.items():
         data_space,
         geo_space,
         weakform_map=weakform_map[mesh_name],
-        dirichlet_bc_map=dirichlet_bc_meshes[mesh_name],
+        bc_map=bc_map[mesh_name],
     )
     model = problem.create_model(mesh_name)
     main.add_model(mesh_name, model)

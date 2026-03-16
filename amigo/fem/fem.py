@@ -453,8 +453,7 @@ class Problem:
         geo_space: basis.SolutionSpace,
         weakform_map={},
         output_map={},
-        dirichlet_bc_map={},
-        sym_bc_map={},
+        bc_map={},
     ):
         self.mesh = mesh
         self.soln_space = soln_space
@@ -462,8 +461,8 @@ class Problem:
         self.geo_space = geo_space
 
         self.weakform_map = weakform_map
-        self.dirichlet_bc_map = dirichlet_bc_map
-        self.sym_bc_map = sym_bc_map
+        self.dirichlet_bc_map = bc_map["dirichlet"]
+        self.sym_bc_map = bc_map["symmetric"]
         self.output_map = output_map
 
         # Initialize Dof's
