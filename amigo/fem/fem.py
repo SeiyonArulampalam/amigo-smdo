@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from matplotlib.collections import PolyCollection
 
+
 class DofSource(am.Component):
     def __init__(self, input_names=[], data_names=[], con_names=[], output_names=[]):
         super().__init__()
@@ -399,6 +400,7 @@ class Mesh:
                 ax.set_aspect("equal")
                 # fig.colorbar(cntr, ax=ax)
         return ax
+
     def plot_3d(
         self,
         w,
@@ -416,7 +418,7 @@ class Mesh:
     ):
         """
         Plot the 2D mesh lifted into 3D by the out-of-plane displacement field w.
- 
+
         Parameters
         ----------
         w         : (nnodes,) array — perpendicular displacement at each node
@@ -434,31 +436,31 @@ class Mesh:
         from mpl_toolkits.mplot3d.art3d import Poly3DCollection
         import matplotlib.cm as cm
         import matplotlib.colors as mcolors
- 
+
         if fig is None or ax is None:
             fig = plt.figure(figsize=(10, 7))
             ax = fig.add_subplot(111, projection="3d")
- 
+
         x = self.X[:, 0] + x_offset
         y = self.X[:, 1] + y_offset
         z = np.asarray(w) * scale
- 
+
         # Colormap normalisation
         vmin = np.min(z) if min_level is None else min_level * scale
         vmax = np.max(z) if max_level is None else max_level * scale
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         scalar_map = cm.ScalarMappable(norm=norm, cmap=cmap)
- 
+
         volumes = self.get_domains()
- 
+
         for name in volumes:
             for etype in volumes[name]:
                 if etype == "T3D2":
                     continue
- 
+
                 # Triangulate so we can colour per-triangle face
                 tri_conn = self.convert_conn(etype, self.get_conn(name, etype))
- 
+
                 verts = []
                 face_colors = []
                 for tri in tri_conn:
@@ -466,7 +468,7 @@ class Mesh:
                     verts.append(pts)
                     # colour by mean displacement of the triangle
                     face_colors.append(scalar_map.to_rgba(np.mean(z[tri])))
- 
+
                 poly = Poly3DCollection(
                     verts,
                     facecolors=face_colors,
@@ -475,22 +477,23 @@ class Mesh:
                     alpha=alpha,
                 )
                 ax.add_collection3d(poly)
- 
+
         # Axis limits derived from data
         ax.set_xlim(x.min(), x.max())
         ax.set_ylim(y.min(), y.max())
         ax.set_zlim(vmin, vmax)
- 
+
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("w")
- 
+
         if title is not None:
             ax.set_title(title)
- 
+
         fig.colorbar(scalar_map, ax=ax, shrink=0.5, label="w")
- 
+
         return ax
+
     def convert_conn(self, etype, conn):
         if etype == "CPS3":
             return conn
@@ -617,15 +620,14 @@ class Problem:
                 soln_basis = self.soln_dof.get_basis(etype)
                 data_basis = self.data_dof.get_basis(etype)
                 geo_basis = self.geo_dof.get_basis(etype)
-                
 
                 # quadrature = self.soln_dof.get_quadrature(etype)
                 # # Create the quadrature instance
-                if weakform_name == 'bending_potential':
+                if weakform_name == "bending_potential":
                     quadrature = basis.ReducedQuadQuadrature()
-                else: 
+                else:
                     quadrature = self.soln_dof.get_quadrature(etype)
-                    
+
                 # Create the element object
                 obj = FiniteElement(
                     elem_name, soln_basis, data_basis, geo_basis, quadrature, weakform
