@@ -58,6 +58,17 @@ class SymmetryDegreesOfFreedom:
         self.bc = bc
         return
 
+    def _get_num_nodes(self, tag, start, end):
+        nnodes = self.mesh.get_num_nodes_on_bc(tag, "T3D2")
+
+        # Update the number of components based on whether to include start and end
+        if start == False:
+            nnodes -= 1
+        if end == False:
+            nnodes -= 1
+
+        return nnodes
+
     def add_bc_source(self, model):
         names = self.bc.keys()
         for name in names:
@@ -68,19 +79,12 @@ class SymmetryDegreesOfFreedom:
             )
 
             line_tag = self.bc[name]["target"][0]
-            nnodes = self.mesh.get_num_nodes_on_bc(line_tag, "T3D2")
-
-            # Update the number of components based on whether to include start and end
-            if self.bc[name]["start"] == False:
-                nnodes -= 1
-            if self.bc[name]["end"] == False:
-                nnodes -= 1
-
-            model.add_component(
-                f"src_{name}",
-                nnodes,
-                bc_src,
+            nnodes = self._get_num_nodes(
+                line_tag, self.bc[name]["start"], self.bc[name]["end"]
             )
+
+            if nnodes > 0:
+                model.add_component(f"src_{name}", nnodes, bc_src)
         return
 
     def link_bc_dof(self, model):
@@ -103,11 +107,12 @@ class SymmetryDegreesOfFreedom:
                 if self.bc[name]["flip"][i] == True:
                     conn = np.flip(conn)
 
-                model.link(
-                    f"src_soln.{input_name}",
-                    f"src_{name}.{input_name}{i}",
-                    src_indices=conn,
-                )
+                if len(conn) > 0:
+                    model.link(
+                        f"src_soln.{input_name}",
+                        f"src_{name}.{input_name}{i}",
+                        src_indices=conn,
+                    )
         return
 
 
