@@ -130,54 +130,49 @@ class DirichletBCSource(am.Component):
 
 
 class DirichletDegreesOfFreedom:
-    def __init__(self, mesh, bc={}):
+    def __init__(self, bc_name, mesh, bc={}):
+        self.bc_name = bc_name
         self.mesh = mesh
         self.bc = bc
         return
 
-    def add_bc_source(self, model):
-        names = self.bc.keys()
-        for name in names:
-            # Loop through each bc_type name
-            input_name = self.bc[name]["input"]
-            target_name = self.bc[name]["target"]
-            bc_src = DirichletBCSource(input_name=input_name)
-            nnodes = self.mesh.get_num_nodes_on_bc(target_name, "T3D2")
+    def _get_bc_nodes(self, targets, start=True, end=True):
+        all_nodes = []
+        for target in targets:
+            nodes = self.mesh.get_bc_nodes(target, "T3D2")
 
-            # Update the number of components based on whether to include start and end
-            if self.bc[name]["start"] == False:
-                nnodes -= 1
-            if self.bc[name]["end"] == False:
-                nnodes -= 1
+            if not start:
+                nodes = nodes[1:]
+            if not end:
+                nodes = nodes[:-1]
 
-            model.add_component(
-                f"src_{name}",
-                nnodes,
-                bc_src,
-            )
-        return
+            all_nodes.append(nodes)
 
-    def link_bc_dof(self, model):
-        names = self.bc.keys()
-        for name in names:
-            # Loop through each bc target
-            target = self.bc[name]["target"]
-            input_name = self.bc[name]["input"][0]  # Extract "u"
-            conn = self.mesh.get_bc_nodes(target, "T3D2")
+        return np.unique(all_nodes)
 
-            # Slice the nodes based on start and end requirement
-            if self.bc[name]["start"] == False and self.bc[name]["end"] == True:
-                conn = conn[1:]
-            elif self.bc[name]["start"] == False and self.bc[name]["end"] == False:
-                conn = conn[1:-1]
-            elif self.bc[name]["start"] == True and self.bc[name]["end"] == False:
-                conn = conn[0:-1]
+    def add_and_link_source(self, model):
+        targets = self.bc["target"]
+        start = self.bc["start"]
+        end = self.bc["end"]
+        nodes = self._get_bc_nodes(targets, start=start, end=end)
 
-            model.link(
-                f"src_soln.{input_name}",
-                f"src_{name}.{input_name}0",
-                src_indices=conn,
-            )
+        input_names = self.bc["input"]
+        bc_src = DirichletBCSource(input_name=input_names)
+
+        if len(nodes) > 0:
+            for name in input_names:
+                model.add_component(
+                    f"src_{self.bc_name}",
+                    len(nodes),
+                    bc_src,
+                )
+
+                model.link(
+                    f"src_soln.{name}",
+                    f"src_{self.bc_name}.{name}0",
+                    src_indices=nodes,
+                )
+
         return
 
 
@@ -453,8 +448,7 @@ class Problem:
         geo_space: basis.SolutionSpace,
         weakform_map={},
         output_map={},
-        dirichlet_bc_map={},
-        sym_bc_map={},
+        bc_map={},
     ):
         self.mesh = mesh
         self.soln_space = soln_space
@@ -462,8 +456,7 @@ class Problem:
         self.geo_space = geo_space
 
         self.weakform_map = weakform_map
-        self.dirichlet_bc_map = dirichlet_bc_map
-        self.sym_bc_map = sym_bc_map
+        self.bc_map = bc_map
         self.output_map = output_map
 
         # Initialize Dof's
@@ -486,14 +479,18 @@ class Problem:
             kind="data",
             name="data",
         )
-        self.dirichlet_bc_dof = DirichletDegreesOfFreedom(
-            self.mesh,
-            self.dirichlet_bc_map,
-        )
-        self.sym_bc_dof = SymmetryDegreesOfFreedom(
-            self.mesh,
-            self.sym_bc_map,
-        )
+
+        self.dirichlet_dof = []
+        self.symm_dof = []
+
+        for name in bc_map:
+            bc = bc_map[name]
+            if bc["type"] == "dirichlet":
+                self.dirichlet_dof.append(
+                    DirichletDegreesOfFreedom(name, self.mesh, bc)
+                )
+            elif bc["type"] == "symmetry":
+                self.symm_dof.append(SymmetryDegreesOfFreedom(name, self.mesh, bc))
 
         return
 
@@ -561,12 +558,13 @@ class Problem:
                     self.geo_dof.link_dof(model, target, etype, comp_name)
 
         # Add BC components and links
-        self.dirichlet_bc_dof.add_bc_source(model)
-        self.dirichlet_bc_dof.link_bc_dof(model)
+        for dof in self.dirichlet_dof:
+            dof.add_and_link_source(model)
 
         # Add symmetric bcs
-        self.sym_bc_dof.add_bc_source(model)
-        self.sym_bc_dof.link_bc_dof(model)
+        # for dof in self.symm_dof:
+        #     dof.add_bc_source(model)
+        #     dof.link_bc_dof(model)
 
         # Make a list of all of the outputs
         all_outputs = []
