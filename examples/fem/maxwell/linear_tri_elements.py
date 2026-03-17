@@ -19,7 +19,7 @@ def dot(N, u):
     return N[0] * u[0] + N[1] * u[1] + N[2] * u[2]
 
 
-def compute_detJ(xi, eta, X, Y, vars):
+def compute_detJ(xi, eta, X, Y):
     N, N_xi, N_ea = eval_shape_funcs(xi, eta)
 
     x_xi = dot(N_xi, X)
@@ -28,28 +28,27 @@ def compute_detJ(xi, eta, X, Y, vars):
     y_xi = dot(N_xi, Y)
     y_ea = dot(N_ea, Y)
 
-    vars["detJ"] = x_xi * y_ea - x_ea * y_xi
-    return x_xi, x_ea, y_xi, y_ea
+    detJ = x_xi * y_ea - x_ea * y_xi
+    return x_xi, x_ea, y_xi, y_ea, detJ
 
 
-def compute_shape_derivs(xi, eta, X, Y, vars):
+def compute_shape_derivs(xi, eta, X, Y):
     N, N_xi, N_ea = eval_shape_funcs(xi, eta)
 
-    x_xi, x_ea, y_xi, y_ea = compute_detJ(xi, eta, X, Y, vars)
-    detJ = vars["detJ"]
+    x_xi, x_ea, y_xi, y_ea, detJ = compute_detJ(xi, eta, X, Y)
 
-    invJ = vars["invJ"] = [[y_ea / detJ, -x_ea / detJ], [-y_xi / detJ, x_xi / detJ]]
+    invJ = [[y_ea / detJ, -x_ea / detJ], [-y_xi / detJ, x_xi / detJ]]
 
-    vars["Nx"] = [
+    Nx = [
         invJ[0][0] * N_xi[0] + invJ[1][0] * N_ea[0],
         invJ[0][0] * N_xi[1] + invJ[1][0] * N_ea[1],
         invJ[0][0] * N_xi[2] + invJ[1][0] * N_ea[2],
     ]
 
-    vars["Ny"] = [
+    Ny = [
         invJ[0][1] * N_xi[0] + invJ[1][1] * N_ea[0],
         invJ[0][1] * N_xi[1] + invJ[1][1] * N_ea[1],
         invJ[0][1] * N_xi[2] + invJ[1][1] * N_ea[2],
     ]
 
-    return N, N_xi, N_ea
+    return N, N_xi, N_ea, Nx, Ny, detJ, invJ

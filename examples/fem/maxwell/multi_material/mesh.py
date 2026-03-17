@@ -1,4 +1,3 @@
-import numpy as np
 import gmsh
 import sys
 

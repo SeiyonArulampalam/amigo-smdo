@@ -1,5 +1,4 @@
 import gmsh
-import numpy as np
 import sys
 
 
@@ -34,8 +33,8 @@ gmsh.initialize()
 gmsh.model.add("magnet")
 
 # Mesh refinement at nodes
-lc = 5e-2
-lc1 = 3e-2
+lc = 10e-2
+lc1 = 10e-2
 
 # Geometry dimentions
 hb = 5  # Boundary length and width

@@ -3,25 +3,10 @@ import numpy as np  # used for plotting/analysis
 import argparse
 import time
 import matplotlib.pylab as plt
-from scipy.sparse import csr_matrix  # For visualization
-from parser import InpParser
-from tabulate import tabulate
+from examples.fem.maxwell.parser import InpParser
 from scipy.sparse.linalg import spsolve
-import examples.maxwell.utils as utils
-from linear_tri_elements import (
-    eval_shape_funcs,
-    dot,
-    compute_detJ,
-    compute_shape_derivs,
-)
-
-try:
-    from mpi4py import MPI
-    from petsc4py import PETSc
-
-    COMM_WORLD = MPI.COMM_WORLD
-except:
-    COMM_WORLD = None
+import examples.fem.maxwell.utils as utils
+from examples.fem.maxwell.linear_tri_elements import compute_shape_derivs
 
 
 class Maxwell(am.Component):
@@ -39,7 +24,7 @@ class Maxwell(am.Component):
         self.add_data("x_coord", shape=(3,))
         self.add_data("y_coord", shape=(3,))
 
-        # Material for each element
+        # Define constants
         self.add_data("alpha")
 
         # Define inputs to the problem
@@ -60,17 +45,10 @@ class Maxwell(am.Component):
         # Extract mesh data
         X = self.data["x_coord"]
         Y = self.data["y_coord"]
-        N, N_xi, N_ea = compute_shape_derivs(xi, eta, X, Y, self.vars)
+        N, N_xi, N_ea, Nx, Ny, detJ, invJ = compute_shape_derivs(xi, eta, X, Y)
 
         # Extract material
         alpha = self.data["alpha"]
-
-        # Set the values of the shape funcs derivs
-        Nx = self.vars["Nx"]
-        Ny = self.vars["Ny"]
-
-        # Compute residual (R=Ku)
-        detJ = self.vars["detJ"]
 
         # Compute the local element residual
         K00 = qwts[n] * detJ * alpha * (Nx[0] * Nx[0] + Ny[0] * Ny[0])
@@ -85,7 +63,7 @@ class Maxwell(am.Component):
         K21 = qwts[n] * detJ * alpha * (Nx[2] * Nx[1] + Ny[2] * Ny[1])
         K22 = qwts[n] * detJ * alpha * (Nx[2] * Nx[2] + Ny[2] * Ny[2])
 
-        res = self.vars["res"] = [
+        res = [
             K00 * u[0] + K01 * u[1] + K02 * u[2],
             K10 * u[0] + K11 * u[1] + K12 * u[2],
             K20 * u[0] + K21 * u[1] + K22 * u[2],
@@ -131,11 +109,10 @@ class Coil(am.Component):
         # Extract mesh data
         X = self.data["x_coord"]
         Y = self.data["y_coord"]
-        N, N_xi, N_ea = compute_shape_derivs(xi, eta, X, Y, self.vars)
-        detJ = self.vars["detJ"]
+        N, N_xi, N_ea, Nx, Ny, detJ, invJ = compute_shape_derivs(xi, eta, X, Y)
         Jz = self.constants["Jz"]
 
-        res = self.vars["res"] = [
+        res = [
             -1 * qwts[n] * detJ * Jz * N[0],
             -1 * qwts[n] * detJ * Jz * N[1],
             -1 * qwts[n] * detJ * Jz * N[2],
@@ -150,7 +127,6 @@ class DirichletBc(am.Component):
         self.add_input("u", value=1.0)
         self.add_input("lam", value=1.0)
         self.add_objective("obj")
-
         return
 
     def compute(self):
@@ -168,7 +144,6 @@ class NodeSource(am.Component):
 
         # States
         self.add_input("u")
-        return
 
 
 class MaterialSource(am.Component):
@@ -229,26 +204,6 @@ if __name__ == "__main__":
         default=False,
         help="Enable building",
     )
-    parser.add_argument(
-        "--order-type",
-        choices=["amd", "nd", "natural"],
-        default="nd",
-        help="Ordering strategy to use (default: amd)",
-    )
-    parser.add_argument(
-        "--order-for-block",
-        dest="order_for_block",
-        action="store_true",
-        default=False,
-        help="Order for 2x2 block KKT matrix",
-    )
-    parser.add_argument(
-        "--show-sparsity",
-        dest="show_sparsity",
-        action="store_true",
-        default=False,
-        help="Show the sparsity pattern",
-    )
     args = parser.parse_args()
 
     # Define amigo module
@@ -308,7 +263,8 @@ if __name__ == "__main__":
         model.build_module()
 
     # Initialize the model
-    model.initialize()
+    model.initialize(order_type=am.OrderingType.NESTED_DISSECTION)
+    p = model.get_problem()
 
     # Set the problem data
     data = model.get_data_vector()
@@ -316,26 +272,21 @@ if __name__ == "__main__":
     data["node_src.y_coord"] = X[:, 1]
     data["material_src.alpha[0]"] = 10.0
     data["material_src.alpha[1]"] = 100.0
-    problem = model.get_opt_problem()
-
-    mat = problem.create_matrix()
 
     # Vectors for solving the problem
-    x = problem.create_vector()
-    ans = problem.create_vector()
-    g = problem.create_vector()
-    rhs = problem.create_vector()
-    problem.hessian(x, mat)
-    problem.gradient(x, g)
+    mat = p.create_matrix()
+    alpha = 1.0
+    x = p.create_vector()
+    ans = p.create_vector()
+    g = p.create_vector()
+    rhs = p.create_vector()
+    p.hessian(alpha, x, mat)
+    p.gradient(alpha, x, g)
     csr_mat = am.tocsr(mat)
-
-    # Plot matrix
-    # utils.plot_matrix(csr_mat.todense())
-    # plt.show()
 
     # Plot solution field
     ans.get_array()[:] = spsolve(csr_mat, g.get_array())
     ans_local = ans
     vals = ans_local.get_array()[model.get_indices("node_src.u")]
-    utils.plot_solution(X, conn, vals)
+    utils.plot_solution(X, conn, vals, title="multimaterial")
     plt.show()
