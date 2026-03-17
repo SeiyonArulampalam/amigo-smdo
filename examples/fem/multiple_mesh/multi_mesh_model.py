@@ -43,7 +43,6 @@ meshes = {
 # Define Dirichlet BCs for each mesh
 mesh0_dirichlet_bcs = {
     "DirichletLine3": {
-        "type": "dirichlet",
         "target": "LINE3",
         "input": ["u"],
         "start": True,
@@ -53,7 +52,6 @@ mesh0_dirichlet_bcs = {
 
 mesh1_dirichlet_bcs = {
     "DirichletLine1": {
-        "type": "dirichlet",
         "target": "LINE1",
         "input": ["u"],
         "start": True,

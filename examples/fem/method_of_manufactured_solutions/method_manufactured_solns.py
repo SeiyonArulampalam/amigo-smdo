@@ -54,28 +54,24 @@ meshes = {"Mesh": Mesh("plate.inp")}
 
 dirichlet_bcs = {
     "DirichletLine1": {
-        "type": "dirichlet",
         "target": "LINE1",
         "input": ["u"],
         "start": True,
         "end": True,
     },
     "DirichletLine2": {
-        "type": "dirichlet",
         "target": "LINE2",
         "input": ["u"],
         "start": False,
         "end": False,
     },
     "DirichletLine3": {
-        "type": "dirichlet",
         "target": "LINE3",
         "input": ["u"],
         "start": True,
         "end": True,
     },
     "DirichletLine4": {
-        "type": "dirichlet",
         "target": "LINE4",
         "input": ["u"],
         "start": False,
