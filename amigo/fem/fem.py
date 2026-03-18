@@ -2,6 +2,7 @@ import amigo as am
 import numpy as np
 from . import basis
 from .connectivity import InpParser
+from .element import FiniteElement, FiniteElementOutput
 
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
@@ -546,22 +547,6 @@ class Mesh:
 
         return np.vstack(cs)
 
-    def plot_tri_mesh_region(self, name, etype, ax, color, label):
-        X2d = self.X[:, 0:2]  # Reduce to 2d (x,y coords only)
-        gmsh_conn = self.get_conn(name, etype)
-        polygons = [X2d[row] for row in gmsh_conn]
-
-        coll = PolyCollection(
-            polygons,
-            facecolors=color,
-            edgecolors="k",
-            linewidths=0.01,
-            label=label,
-            antialiaseds=False,
-        )
-        ax.add_collection(coll)
-        return
-
 
 # Needs to take in bcs here
 class Problem:
@@ -572,7 +557,7 @@ class Problem:
         soln_space: basis.SolutionSpace,
         data_space: basis.SolutionSpace,
         geo_space: basis.SolutionSpace,
-        weakform_map={},
+        potential_map={},
         output_map={},
         bc_map={},
     ):
@@ -581,7 +566,7 @@ class Problem:
         self.data_space = data_space
         self.geo_space = geo_space
 
-        self.weakform_map = weakform_map
+        self.potential_map = potential_map
         self.bc_map = bc_map
         self.output_map = output_map
 
@@ -635,9 +620,9 @@ class Problem:
 
         # Figure out which elements need to be created to go with this weak form
         element_objs = {}
-        for weakform_name in self.weakform_map:
-            targets = self.weakform_map[weakform_name]["target"]
-            weakform = self.weakform_map[weakform_name]["weakform"]
+        for potential_name in self.potential_map:
+            targets = self.potential_map[potential_name]["target"]
+            potential = self.potential_map[potential_name]["potential"]
 
             # Figure out the element types that we need
             etypes = []
@@ -646,10 +631,10 @@ class Problem:
                     if not etype in etypes:
                         etypes.append(etype)
 
-            # Loop over the element types for this weakform
+            # Loop over the element types for this potential
             for etype in etypes:
                 # Set the element name
-                elem_name = f"Element{weakform_name}{etype}"
+                elem_name = f"Element{potential_name}{etype}"
 
                 # Get the basis objects for the element type
                 soln_basis = self.soln_dof.get_basis(etype)
@@ -665,20 +650,20 @@ class Problem:
 
                 # Create the element object
                 obj = FiniteElement(
-                    elem_name, soln_basis, data_basis, geo_basis, quadrature, weakform
+                    elem_name, soln_basis, data_basis, geo_basis, quadrature, potential
                 )
 
                 # Set this into the element dictionary
-                element_objs[(weakform_name, etype)] = obj
+                element_objs[(potential_name, etype)] = obj
 
         # Add the element component objects
-        for weakform_name in self.weakform_map:
-            targets = self.weakform_map[weakform_name]["target"]
+        for potential_name in self.potential_map:
+            targets = self.potential_map[potential_name]["target"]
 
             for target in targets:
                 for etype in domains[target]:
-                    elem = element_objs[(weakform_name, etype)]
-                    comp_name = f"Element{weakform_name}{etype}{target}"
+                    elem = element_objs[(potential_name, etype)]
+                    comp_name = f"Element{potential_name}{etype}{target}"
 
                     # Add the element/component
                     nelems = self.mesh.get_num_elements(target, etype)
@@ -769,113 +754,3 @@ class Problem:
 
         # Link the output to the finite element class
         return model
-
-
-class FiniteElement(am.Component):
-    def __init__(
-        self,
-        name,
-        soln_basis,
-        data_basis,
-        geo_basis,
-        quadrature,
-        weakform,
-    ):
-        super().__init__(name=name)
-
-        self.soln_basis = soln_basis
-        self.data_basis = data_basis
-        self.geo_basis = geo_basis
-        self.quadrature = quadrature
-        self.weakform = weakform
-
-        # From BasisCollection
-        self.soln_basis.add_declarations(self)
-        self.geo_basis.add_declarations(self)
-        self.data_basis.add_declarations(self)
-
-        # Set the arguments to the compute function for each quadrature point
-        self.set_args(self.quadrature.get_args())
-
-        # Add the objective to minimize
-        self.add_objective("obj")
-
-        return
-
-    def compute(self, **args):
-
-        quad_weight, quad_point = self.quadrature.get_point(**args)
-
-        # Evaluate the solution fields/data fields (u)
-        soln_xi = self.soln_basis.eval(self, quad_point)
-        data_xi = self.data_basis.eval(self, quad_point)
-        geo = self.geo_basis.eval(self, quad_point)
-
-        # Perform the mapping from computational to physical coordinates (u)
-        detJ, Jinv = self.geo_basis.compute_transform(geo)
-        soln_phys = self.soln_basis.transform(detJ, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
-
-        # Add the contributions directly to the Lagrangian
-        self.objective["obj"] = (
-            quad_weight * detJ * self.weakform(soln_phys, data=data_phys, geo=geo)
-        )
-        return
-
-
-class FiniteElementOutput(am.Component):
-    def __init__(
-        self,
-        name,
-        soln_basis,
-        data_basis,
-        geo_basis,
-        quadrature,
-        output_names,
-        output_function,
-    ):
-        super().__init__(name=name)
-
-        self.soln_basis = soln_basis
-        self.data_basis = data_basis
-        self.geo_basis = geo_basis
-        self.quadrature = quadrature
-        self.output_names = output_names
-        self.output_function = output_function
-
-        # From BasisCollection
-        self.soln_basis.add_declarations(self)
-        self.geo_basis.add_declarations(self)
-        self.data_basis.add_declarations(self)
-
-        # add the output declarations, assuming scalar functions
-        for name in self.output_names:
-            self.add_output(name)
-
-        # Set the arguments to the compute function for each quadrature point
-        self.set_args(self.quadrature.get_args())
-
-        return
-
-    def compute_output(self, **args):
-        quad_weight, quad_point = self.quadrature.get_point(**args)
-
-        # Evaluate the solution fields/data fields (u)
-        soln_xi = self.soln_basis.eval(self, quad_point)
-        data_xi = self.data_basis.eval(self, quad_point)
-        geo = self.geo_basis.eval(self, quad_point)
-
-        # Perform the mapping from computational to physical coordinates (u)
-        detJ, Jinv = self.geo_basis.compute_transform(geo)
-        soln_phys = self.soln_basis.transform(detJ, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
-
-        # Add the contributions directly to the Lagrangian
-        outputs = self.output_function(soln_phys, data=data_phys, geo=geo)
-
-        for name in self.output_names:
-            if name in outputs:
-                self.outputs[name] = quad_weight * detJ * outputs[name]
-            else:
-                self.outputs[name] = 0.0
-        return
