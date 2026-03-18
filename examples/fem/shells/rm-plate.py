@@ -167,8 +167,15 @@ w = xm["src_soln.w"]
 tx = xm["src_soln.tx"]
 ty = xm["src_soln.ty"]
 
-fig, ax = plt.subplots(ncols=3)
-mesh.plot(w, ax=ax[0])
-mesh.plot(tx, ax=ax[1])
-mesh.plot(ty, ax=ax[2])
+# fig, ax = plt.subplots(ncols=3)
+# mesh.plot(w, ax=ax[0])
+# mesh.plot(tx, ax=ax[1])
+# np.save('w_shearlocked.npy', w)
+np.save('w_reducedshear.npy',w)
+w_shearlocked = np.load('w_shearlocked.npy')
+mesh.plot_3d(w)
+# mesh.plot_3d(w_shearlocked)
+
+print(np.max(np.abs(((w-w_shearlocked)))))
+
 plt.show()

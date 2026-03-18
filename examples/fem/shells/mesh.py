@@ -10,7 +10,7 @@ gmsh.initialize()
 gmsh.model.add("plate")
 
 # Mesh refinement
-lc = 0.0075
+lc = 0.01
 
 # Geometry definition
 L = 1.0  # plate size
