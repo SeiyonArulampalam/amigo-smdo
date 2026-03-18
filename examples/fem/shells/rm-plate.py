@@ -7,13 +7,13 @@ import argparse
 
 E = 1.0  # Young's modulus
 nu = 0.3  # Poisson's ratio
-t = 0.005 # Plate thickness
+t = 0.005  # Plate thickness
 k_s = 5.0 / 6.0  # Shear correction factor
 D = E * t**3 / (12.0 * (1.0 - nu**2))  # Bending stiffness
 G = E / (2.0 * (1.0 + nu))  # Shear stiffness  (= k_s * G * t)
 A44 = k_s * G * t
 A55 = A44
-q0 = 1 # N/m^2, load intensity
+q0 = 1  # N/m^2, load intensity
 
 
 def potential_bending(soln, data=None, geo=None):
@@ -32,7 +32,9 @@ def potential_bending(soln, data=None, geo=None):
     k3 = tx_grad[1] + ty_grad[0]
 
     # bending strain energy
-    U_b = 0.5 *  (k2 * (k1 * nu + k2) + k1 * (k1 + k2 * nu) + 1 / 2 * k3**2 * (1 - nu))
+    U_b = (
+        0.5 * D * (k2 * (k1 * nu + k2) + k1 * (k1 + k2 * nu) + 1 / 2 * k3**2 * (1 - nu))
+    )
     Work_ext = -q0 * w_val
 
     return U_b - Work_ext
@@ -48,22 +50,9 @@ def potential_shear(soln, data=None, geo=None):
     ty_val = soln["ty"]["value"]
 
     # shear strain energy
-    U_s = 0* 0.5 * (A44 * (w_grad[0] + tx_val) ** 2 + A55 * (w_grad[1] + ty_val) ** 2)
+    U_s = 0.5 * (A44 * (w_grad[0] + tx_val) ** 2 + A55 * (w_grad[1] + ty_val) ** 2)
 
     return U_s
-
-
-# def weakform_traction(soln, data=None, geo=None):
-#     """External Work Line integral integrand"""
-#     ux = soln["ux"]["value"]
-#     uy = soln["uy"]["value"]
-#     # traction force for element
-#     # W = uT t
-#     tx = 0
-#     ty = -1
-
-#     W = ux * tx + uy * ty
-#     return W
 
 
 # Two displacement DOFs per node
@@ -80,21 +69,8 @@ weakform_map = {
         "target": ["SURFACE1"],
         "weakform": potential_shear,
     },
-    # "traction": {
-    #     "target": ["LINE2"],
-    #     "weakform": weakform_traction,
-    # },
 }
 
-# dirichlet_bc_map = {
-#     "clamp_w": {
-#         "type": "dirichlet",
-#         "target": ["LINE1", "LINE2", "LINE3", "LINE4"],  # left edge — fix ux
-#         "input": ["w"],
-#         "start": True,
-#         "end": True,
-#     },
-# }
 
 bc_map = {
     "clamp_w": {
@@ -104,20 +80,6 @@ bc_map = {
         "start": True,
         "end": True,
     },
-    # "clamp_tx": {
-    #     "type": "dirichlet",
-    #     "input": ["tx"],#, "tx", "ty"],
-    #     "target": ["LINE1", "LINE2", "LINE3", "LINE4"],  # left edge — fix ux
-    #     "start": True,
-    #     "end": True,
-    # },
-    # "clamp_ty": {
-    #     "type": "dirichlet",
-    #     "input": ["ty"],#, "tx", "ty"],
-    #     "target": ["LINE1", "LINE2", "LINE3", "LINE4"],  # left edge — fix ux
-    #     "start": True,
-    #     "end": True,
-    # },
 }
 
 
@@ -197,13 +159,13 @@ ty = xm["src_soln.ty"]
 def max_relative_error(list1, list2, eps=1e-12):
     return max(abs(a - b) / max(abs(a), abs(b), eps) for a, b in zip(list1, list2))
 
+
 a = 1.0
-w_normalized = 1000*w * D/ (q0*a**4)
-print('normalized deflection: ', np.max(np.abs(w_normalized)))
+w_normalized = 1000 * w * D / (q0 * a**4)
+print("normalized deflection max: ", np.max(np.abs(w_normalized)))
 mesh.plot_3d(w_normalized)
 
-# w_old = np.load('w_1e-4.npy')
-# mesh.plot_3d(w_old)
-# print(max_relative_error(w,w_shearlocked))
+# Also print number of nodes
+print(f"number of nodes: {mesh.X.shape[0]}")
 
 plt.show()

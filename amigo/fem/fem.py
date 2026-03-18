@@ -164,10 +164,10 @@ class DirichletDegreesOfFreedom:
 
         if len(nodes) > 0:
             model.add_component(
-                    f"src_{self.bc_name}",
-                    len(nodes),
-                    bc_src,
-                )
+                f"src_{self.bc_name}",
+                len(nodes),
+                bc_src,
+            )
 
             for name in input_names:
                 model.link(
@@ -626,7 +626,7 @@ class Problem:
 
                 # quadrature = self.soln_dof.get_quadrature(etype)
                 # # Create the quadrature instance
-                if weakform_name == "bending_potential":
+                if weakform_name == "shear_potential":
                     quadrature = basis.ReducedQuadQuadrature()
                 else:
                     quadrature = self.soln_dof.get_quadrature(etype)
