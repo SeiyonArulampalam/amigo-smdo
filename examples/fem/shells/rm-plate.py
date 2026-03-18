@@ -153,29 +153,14 @@ print("Solving...")
 K = am.tocsr(mat)
 x.get_array()[:] = spsolve(K, g.get_array())
 
-# # print(np.max(u))
-# # Extract displacement fields
-# ux = u[model.get_indices("src_soln.ux")]
-# uy = u[model.get_indices("src_soln.uy")]
-
-# max_domain = np.max(np.maximum(ux, uy))
-# min_domain = np.min(np.minimum(ux, uy))
-
 print("Plotting...")
 
 w = xm["src_soln.w"]
 tx = xm["src_soln.tx"]
 ty = xm["src_soln.ty"]
 
-# fig, ax = plt.subplots(ncols=3)
-# mesh.plot(w, ax=ax[0])
-# mesh.plot(tx, ax=ax[1])
-# np.save('w_shearlocked.npy', w)
 np.save('w_reducedshear.npy',w)
 w_shearlocked = np.load('w_shearlocked.npy')
 mesh.plot_3d(w)
-# mesh.plot_3d(w_shearlocked)
-
 print(np.max(np.abs(((w-w_shearlocked)))))
-
 plt.show()
