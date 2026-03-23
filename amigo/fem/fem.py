@@ -65,6 +65,7 @@ class DirichletBC_weakform(am.Component):
             self.constraints[f"res_disp_{name}"] = self.inputs[f"lam_{name}"]
         return
 
+
 class DirichletDegreesOfFreedom:
     def __init__(self, bc_name, mesh, bc={}, integrand_formulation="potential"):
         self.bc_name = bc_name
@@ -110,7 +111,7 @@ class DirichletDegreesOfFreedom:
                         f"multiplier.res_{name}",
                         f"{self.bc_name}.res_disp_{name}",
                         src_indices=nodes,
-                )
+                    )
 
         return
 
@@ -642,7 +643,9 @@ class Problem:
             bc = bc_map[name]
             if bc["type"] == "dirichlet":
                 self.dirichlet_dof.append(
-                    DirichletDegreesOfFreedom(name, self.mesh, bc, self.integrand_formulation)
+                    DirichletDegreesOfFreedom(
+                        name, self.mesh, bc, self.integrand_formulation
+                    )
                 )
             elif bc["type"] == "symmetry":
                 self.symm_dof.append(SymmetryDegreesOfFreedom(name, self.mesh, bc))
