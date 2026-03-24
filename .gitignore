@@ -35,6 +35,9 @@ include/amigo_include_paths.h
 /examples/**/*.tikz
 
 
+# OpenMDAO output
+.openmdao_out
+
 # Virtual environments and packaging
 venv/
 amigo.egg-info/
