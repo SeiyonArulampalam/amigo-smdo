@@ -137,7 +137,7 @@ class InteriorPointOptimizer {
     info_.lbh = lbh_->template get_array<policy>();
   }
 
-  // --- Factory ---
+  // Factory
 
   std::shared_ptr<OptVector<T>> create_opt_vector() const {
     return std::make_shared<OptVector<T>>(np_, nc_, problem_->create_vector());
@@ -146,7 +146,7 @@ class InteriorPointOptimizer {
     return std::make_shared<OptVector<T>>(np_, nc_, x);
   }
 
-  // --- Delegation ---
+  // Delegation
 
   void set_multipliers_value(T v, std::shared_ptr<Vector<T>> x) const {
     ipm::set_constraint_value(info_, v, x->template get_array<policy>());
@@ -172,6 +172,8 @@ class InteriorPointOptimizer {
     ipm::initialize_bound_duals(mu, info_, xlam, zl, zu);
   }
 
+  // Condensed augmented system RHS (8-block to 4-block).
+  // Returns L2 norm of the condensed residual.
   T compute_residual(T mu, const std::shared_ptr<OptVector<T>> vars,
                      const std::shared_ptr<Vector<T>> grad,
                      std::shared_ptr<Vector<T>> res) const {
@@ -203,6 +205,7 @@ class InteriorPointOptimizer {
     ipm::compute_diagonal(info_, s, diag->template get_array<policy>());
   }
 
+  // Copy augmented solution into update, then back-substitute for bound duals.
   void compute_update(T mu, const std::shared_ptr<OptVector<T>> vars,
                       const std::shared_ptr<Vector<T>> px,
                       std::shared_ptr<OptVector<T>> upd) const {
@@ -280,6 +283,19 @@ class InteriorPointOptimizer {
     T lv[3] = {ld, lp, lc}, gv[3];
     MPI_Allreduce(lv, gv, 3, get_mpi_type<T>(), MPI_SUM, comm_);
     d_sq = gv[0]; p_sq = gv[1]; c_sq = gv[2];
+  }
+
+  // Python: theta = optimizer.compute_constraint_violation_1norm(vars, grad)
+  // Constraint violation 1-norm for filter line search.
+  T compute_constraint_violation_1norm(
+      const std::shared_ptr<OptVector<T>> vars,
+      const std::shared_ptr<Vector<T>> grad) const {
+    ipm::State<const T> s = ipm::State<const T>::template make<policy>(vars);
+    T local = ipm::compute_constraint_violation_1norm(
+        info_, s, grad->template get_array<policy>());
+    T result;
+    MPI_Allreduce(&local, &result, 1, get_mpi_type<T>(), MPI_SUM, comm_);
+    return result;
   }
 
   // Python: d_inf, p_inf, c_inf = optimizer.compute_kkt_error_mu(mu, vars, grad)
@@ -368,6 +384,54 @@ class InteriorPointOptimizer {
     // TODO: implement debug verification for new 2x2 system
   }
 
+  // Slack mapping
+  // Register which primals are slacks and which constraints they correspond to.
+  // After this call, initialize_slacks() becomes available.
+  //   slack_global:  global variable indices of slack variables
+  //   constr_global: global variable indices of the inequality constraints
+  // Both arrays must have the same length (n_slacks).
+  void set_slack_mapping(int n_slacks, const int* slack_global,
+                         const int* constr_global) {
+    auto ml = (policy == ExecPolicy::CUDA)
+                  ? MemoryLocation::HOST_AND_DEVICE
+                  : MemoryLocation::HOST_ONLY;
+    n_slacks_ = n_slacks;
+    slack_global_ = std::make_shared<Vector<int>>(n_slacks, 0, ml);
+    constr_global_ = std::make_shared<Vector<int>>(n_slacks, 0, ml);
+    for (int k = 0; k < n_slacks; k++) {
+      (*slack_global_)[k] = slack_global[k];
+      (*constr_global_)[k] = constr_global[k];
+    }
+    slack_global_->copy_host_to_device();
+    constr_global_->copy_host_to_device();
+  }
+
+  // Initialize slacks to s = d(x).
+  //
+  // Each inequality is reformulated as c_k(x) - s_k = 0.  The gradient
+  // at constraint index ci holds the primal residual c_k(x) - s_k.
+  // Recovering the constraint body: d_k(x) = (c_k(x) - s_k) + s_k.
+  //
+  // Requires gradient to have been evaluated at the current (x, s).
+  // After this call, use initialize_multipliers_and_slacks() to push
+  // the new slacks into bounds and reset bound duals.
+  void initialize_slacks(const std::shared_ptr<Vector<T>> grad,
+                         std::shared_ptr<OptVector<T>> vars) const {
+    if (n_slacks_ == 0) return;
+    T* xlam = vars->template get_solution_array<policy>();
+    const T* g = grad->template get_array<policy>();
+    for (int k = 0; k < n_slacks_; k++) {
+      int si = (*slack_global_)[k];
+      int ci = (*constr_global_)[k];
+      T residual = g[ci];       // c_k(x) - s_k
+      T s_old = xlam[si];       // current slack
+      xlam[si] = residual + s_old;  // d_k(x) = c_k(x)
+    }
+  }
+
+  bool has_slacks() const { return n_slacks_ > 0; }
+  int get_num_slacks() const { return n_slacks_; }
+
   // Accessors
   int get_num_design_variables() const { return np_; }
   int get_num_constraints() const { return nc_; }
@@ -376,6 +440,15 @@ class InteriorPointOptimizer {
 
   std::shared_ptr<Vector<T>> get_lbx() const { return lbx_; }
   std::shared_ptr<Vector<T>> get_ubx() const { return ubx_; }
+
+  // Return relaxed bounds if available, otherwise original bounds.
+  // These are the bounds actually used by the IPM backend (info_.lbx/ubx).
+  std::shared_ptr<Vector<T>> get_lbx_relaxed() const {
+    return lbx_relaxed_ ? lbx_relaxed_ : lbx_;
+  }
+  std::shared_ptr<Vector<T>> get_ubx_relaxed() const {
+    return ubx_relaxed_ ? ubx_relaxed_ : ubx_;
+  }
 
   // Relax bounds by bound_relax_factor (default 1e-8).
   // Must be called before initialize_multipliers_and_slacks.
@@ -399,6 +472,11 @@ class InteriorPointOptimizer {
   std::shared_ptr<Vector<T>> lbx_, ubx_, lbh_;
   std::shared_ptr<Vector<T>> lbx_relaxed_, ubx_relaxed_;
   ipm::ProblemInfo<T> info_;
+
+  // Slack-to-constraint mapping (set via set_slack_mapping)
+  int n_slacks_ = 0;
+  std::shared_ptr<Vector<int>> slack_global_;
+  std::shared_ptr<Vector<int>> constr_global_;
 };
 
 }  // namespace amigo

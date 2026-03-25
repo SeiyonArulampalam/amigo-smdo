@@ -70,6 +70,8 @@ class Meta:
 
         if self.value is None:
             self.value = 0.0
+        elif self.type is float and isinstance(self.value, int):
+            self.value = float(self.value)
 
         if len(kwargs) > 0:
             raise ValueError(f"Unknown options: {kwargs}")
@@ -1016,7 +1018,7 @@ class Component:
                 [lhs], reference=False, mode=mode, template_name=template_name
             )
 
-            if mode == "eval":
+            if mode in ("eval", "objective"):
                 for line in decl + passive + active:
                     cpp += "    " + line + ";\n"
                 cpp += "    " + f"return {lhs.to_cpp()};\n"

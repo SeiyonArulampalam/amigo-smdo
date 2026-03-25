@@ -2,37 +2,40 @@
 #define AMIGO_INTERIOR_POINT_BACKEND_H
 
 /*
-  Primal-dual interior-point backend for the 2x2 augmented system.
+  Primal-dual interior-point backend for the full-space solver.
 
-  Problem formulation after slack introduction:
+  Problem formulation (after slack introduction for inequalities):
 
     min  f(x)
-    s.t. c(x) = 0          (all constraints are equalities)
+    s.t. c(x) = 0          (equalities, including c_k(x) - s_k = 0 for ineq)
          xL <= x <= xU      (bounds on all primals: design vars + slacks)
 
-  Primal-dual equations (KKT conditions for the barrier subproblem):
+  Full 8-block Newton system:
 
-    (4a) grad_x L + Sigma*x - zl + zu = 0      (stationarity)
-    (4b) c(x) = 0                                (primal feasibility)
-    (4c) (x - xL)*zl = mu*e                      (complementarity, lower)
-         (xU - x)*zu = mu*e                      (complementarity, upper)
+    Block 1 (x stationarity):     rhs_x  = grad_f + J^T y - z_L + z_U
+    Block 2 (s stationarity):     rhs_s  = -y_d - v_L + v_U
+    Block 3 (eq feasibility):     rhs_yc = c(x)
+    Block 4 (ineq feasibility):   rhs_yd = d(x) - s
+    Block 5 (lower compl, x):     rhs_zL = gap_xL * z_L - mu
+    Block 6 (upper compl, x):     rhs_zU = gap_xU * z_U - mu
+    Block 7 (lower compl, s):     rhs_vL = gap_sL * v_L - mu
+    Block 8 (upper compl, s):     rhs_vU = gap_sU * v_U - mu
 
-  The 2x2 augmented system solved at each iteration:
+  Condensation to 4-block augmented system:
 
-    [ W + Sigma + dw*I    A^T   ] [ dx   ]   [ r_d ]
-    [       A           -dc*I   ] [ dlam ] = [ r_p ]
+    augRhs_x = rhs_x + rhs_zL / gap_xL - rhs_zU / gap_xU
+    augRhs_s = rhs_s + rhs_vL / gap_sL - rhs_vU / gap_sU
+    (= simplifies to: -grad + mu/gap_L - mu/gap_U, as z terms cancel)
 
-  where Sigma = diag(zl/(x-xL) + zu/(xU-x)), A = constraint Jacobian.
+  In amigo, x and s share the primal vector, and y_c and y_d share
+  the constraint vector, so the 4-block reduces to a 2-block solve:
 
-  Bound duals are recovered via back-substitution:
+    [ W + Sigma + delta_w*I    J^T      ] [ dx   ]   [ -augRhs ]
+    [       J              -delta_c*I   ] [ dlam ] = [ -rhs_c  ]
 
-    dzl = (-(gap_l * zl - mu) - zl * dx) / gap_l
-    dzu = (-(gap_u * zu - mu) + zu * dx) / gap_u
-
-  Step sizes are chosen by the fraction-to-the-boundary rule:
-
-    alpha_x = max{ a in (0,1] : x + a*dx >= (1-tau)*x }
-    alpha_z = max{ a in (0,1] : z + a*dz >= (1-tau)*z }
+  Back-substitution for bound dual steps:
+    dz_L = -(rhs_zL + z_L * dx) / gap_xL
+    dz_U = -(rhs_zU - z_U * dx) / gap_xU
 */
 
 #include <cmath>
@@ -164,34 +167,41 @@ void initialize_bound_duals(T mu, const ProblemInfo<T>& p,
   }
 }
 
-// Condensed residual for the 2x2 augmented system.
+// Augmented system RHS via 8-block to 4-block condensation.
 //
-// Primal rows (right-hand side of the first block row):
-//   r[i] = -(grad[i] - zl[i] + zu[i])                    stationarity residual
-//         + (-(gap_l * zl - mu)) / gap_l                  lower complementarity condensation
-//         - (-(gap_u * zu - mu)) / gap_u                  upper complementarity condensation
+// For each primal i, the 8-block RHS has three relevant blocks:
+//   rhs_stat   = grad[i] - zl[i] + zu[i]       (stationarity, Blocks 1-2)
+//   rhs_complL = gap_L * zl - mu                (complementarity, Block 5/7)
+//   rhs_complU = gap_U * zu - mu                (complementarity, Block 6/8)
 //
-// Constraint rows (right-hand side of the second block row):
-//   r[j] = -(constraint_value[j] - target[j])             primal feasibility
+// Condensation folds complementarity into stationarity:
+//   augRhs = rhs_stat + rhs_complL/gap_L - rhs_complU/gap_U
+//
+// Output is negated: res = -augRhs  (convention: K * px = res gives Newton step)
 template <typename T>
 void compute_residual(T mu, const ProblemInfo<T>& p,
                       State<const T>& s, const T* grad, T* res) {
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
     T x = s.xlam[idx];
-    T r = -(grad[idx] - s.zl[i] + s.zu[i]);
 
+    // Stationarity residual (Blocks 1-2: rhs_x or rhs_s)
+    T rhs_stat = grad[idx] - s.zl[i] + s.zu[i];
+
+    // Condense complementarity into stationarity
+    T aug = rhs_stat;
     if (!std::isinf(p.lbx[i])) {
       T gap = x - p.lbx[i];
-      r += -(gap * s.zl[i] - mu) / gap;
+      aug += (gap * s.zl[i] - mu) / gap;   // +rhs_complL / gap_L
     }
     if (!std::isinf(p.ubx[i])) {
       T gap = p.ubx[i] - x;
-      r -= -(gap * s.zu[i] - mu) / gap;
+      aug -= (gap * s.zu[i] - mu) / gap;   // -rhs_complU / gap_U
     }
-    res[idx] = r;
+    res[idx] = -aug;
   }
 
+  // Constraint feasibility (Blocks 3-4: rhs_yc, rhs_yd)
   for (int j = 0; j < p.n_constraints; j++) {
     int idx = p.constraint_indices[j];
     res[idx] = -(grad[idx] - p.lbh[j]);
@@ -199,7 +209,7 @@ void compute_residual(T mu, const ProblemInfo<T>& p,
 }
 
 // Same as compute_residual, but also accumulates squared norms of the
-// unscaled dual and primal infeasibility for convergence monitoring.
+// un-condensed dual and primal infeasibility for convergence monitoring.
 template <typename T>
 void compute_residual_and_infeasibility(
     T mu, const ProblemInfo<T>& p, State<const T>& s,
@@ -210,19 +220,22 @@ void compute_residual_and_infeasibility(
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
     T x = s.xlam[idx];
-    T rd = grad[idx] - s.zl[i] + s.zu[i];
-    dual_sq += rd * rd;
 
-    T r = -rd;
+    // Stationarity residual (un-condensed, for monitoring)
+    T rhs_stat = grad[idx] - s.zl[i] + s.zu[i];
+    dual_sq += rhs_stat * rhs_stat;
+
+    // Condense complementarity into stationarity
+    T aug = rhs_stat;
     if (!std::isinf(p.lbx[i])) {
       T gap = x - p.lbx[i];
-      r += -(gap * s.zl[i] - mu) / gap;
+      aug += (gap * s.zl[i] - mu) / gap;
     }
     if (!std::isinf(p.ubx[i])) {
       T gap = p.ubx[i] - x;
-      r -= -(gap * s.zu[i] - mu) / gap;
+      aug -= (gap * s.zu[i] - mu) / gap;
     }
-    res[idx] = r;
+    res[idx] = -aug;
   }
 
   for (int j = 0; j < p.n_constraints; j++) {
@@ -233,13 +246,13 @@ void compute_residual_and_infeasibility(
   }
 }
 
-// Barrier diagonal Sigma for the 2x2 augmented system (eq. 13).
+// Barrier diagonal Sigma for the augmented system.
 //
-//   Primal rows:     Sigma_i = zl_i/(x_i - lb_i) + zu_i/(ub_i - x_i)
-//   Constraint rows: 0  (inertia correction adds -delta_c separately)
+//   sigma_x[i] = z_L[i]/gap_xL[i] + z_U[i]/gap_xU[i]  (Block 1,1)
+//   sigma_s[k] = v_L[k]/gap_sL[k] + v_U[k]/gap_sU[k]  (Block 2,2)
 //
-// Each entry is written, not accumulated: the function fully owns the
-// primal and constraint diagonal entries it touches.
+// In amigo, x and s share the primal vector, so both use the same loop.
+// Constraint diagonal entries are zero (regularization delta_c added separately).
 template <typename T>
 void compute_diagonal(const ProblemInfo<T>& p, State<const T>& s, T* diag) {
   for (int i = 0; i < p.n_primal; i++) {
@@ -255,10 +268,18 @@ void compute_diagonal(const ProblemInfo<T>& p, State<const T>& s, T* diag) {
   }
 }
 
-// Bound dual back-substitution. After solving the 2x2 system for (dx, dlam),
-// recover the bound dual steps from the complementarity equations:
-//   dzl = (-(gap_l * zl - mu) - zl * dx) / gap_l
-//   dzu = (-(gap_u * zu - mu) + zu * dx) / gap_u
+// Bound dual back-substitution.
+//
+// After solving the augmented system for (dx, dlam), recover the bound
+// dual steps that were eliminated during RHS condensation.
+//
+// The complementarity blocks give:
+//   rhs_complL = gap_L * zl - mu     (Block 5/7)
+//   rhs_complU = gap_U * zu - mu     (Block 6/8)
+//
+// Back-substitution with sign correction:
+//   dzl = -(rhs_complL + zl * dx) / gap_L
+//   dzu = -(rhs_complU - zu * dx) / gap_U
 template <typename T>
 void compute_bound_dual_step(T mu, const ProblemInfo<T>& p,
                              State<const T>& s, const T* px,
@@ -270,11 +291,13 @@ void compute_bound_dual_step(T mu, const ProblemInfo<T>& p,
 
     if (!std::isinf(p.lbx[i])) {
       T gap = x - p.lbx[i];
-      dzl[i] = (-(gap * s.zl[i] - mu) - s.zl[i] * dx) / gap;
+      T rhs_complL = gap * s.zl[i] - mu;
+      dzl[i] = -(rhs_complL + s.zl[i] * dx) / gap;
     }
     if (!std::isinf(p.ubx[i])) {
       T gap = p.ubx[i] - x;
-      dzu[i] = (-(gap * s.zu[i] - mu) + s.zu[i] * dx) / gap;
+      T rhs_complU = gap * s.zu[i] - mu;
+      dzu[i] = -(rhs_complU - s.zu[i] * dx) / gap;
     }
   }
 }
@@ -497,6 +520,18 @@ void compute_kkt_error_sq(const ProblemInfo<T>& p, State<const T>& s,
   }
 }
 
+// Constraint violation 1-norm: theta = sum_j |c_j(x)|.
+template <typename T>
+T compute_constraint_violation_1norm(const ProblemInfo<T>& p, State<const T>& s,
+                                     const T* grad) {
+  T result = 0.0;
+  for (int j = 0; j < p.n_constraints; j++) {
+    int idx = p.constraint_indices[j];
+    result += std::abs(grad[idx] - p.lbh[j]);
+  }
+  return result;
+}
+
 // Dual residual vector: r_d[i] = grad[i] - zl[i] + zu[i] for primals, 0 elsewhere.
 // Used by the quality function to compute the cross term r_d^T * (Hessian_mod * dx).
 template <typename T>
@@ -509,11 +544,14 @@ void compute_dual_residual_vector(const ProblemInfo<T>& p, State<const T>& s,
   }
 }
 
-// Barrier directional derivative computed from the KKT residual and solution.
-// dphi = -r_primal^T * px - lam^T * (J * dx)
-// where J*dx is reconstructed from constraint rows: J*dx = r_j - diag_j * px_j.
-// This avoids recomputing the barrier gradient explicitly and handles
-// the regularization terms (delta_w, delta_c) correctly.
+// Barrier directional derivative from the condensed KKT residual and solution.
+//
+// dphi = -augRhs_primal^T * px - lam^T * (J * dx)
+//
+// J*dx is reconstructed from constraint rows: J*dx = res_j - diag_j * px_j,
+// which removes the regularization contribution (delta_c * dlam).
+//
+// Used in the switching condition of the filter line search (Eq. 19).
 template <typename T>
 T compute_barrier_dphi_from_kkt(const ProblemInfo<T>& p, State<const T>& s,
                                 const T* res, const T* px, const T* diag) {

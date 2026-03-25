@@ -1,3 +1,4 @@
+// Force rebuild after header changes
 #include <mpi4py/mpi4py.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -565,76 +566,79 @@ PYBIND11_MODULE(amigo, mod) {
              return std::vector<double>(zu, zu + n);
            });
 
-  using IPOpt = amigo::InteriorPointOptimizer<double, detail::policy>;
+  using IPMOpt = amigo::InteriorPointOptimizer<double, detail::policy>;
   using OV = amigo::OptVector<double>;
   using Vec = amigo::Vector<double>;
   using CSR = amigo::CSRMat<double>;
 
-  py::class_<IPOpt, std::shared_ptr<IPOpt>>(mod, "InteriorPointOptimizer")
+  py::class_<IPMOpt, std::shared_ptr<IPMOpt>>(mod, "InteriorPointOptimizer")
       .def(py::init<
            std::shared_ptr<amigo::OptimizationProblem<double, detail::policy>>,
            std::shared_ptr<Vec>, std::shared_ptr<Vec>>())
       .def("create_opt_vector",
-           [](const IPOpt& self, py::object x) {
+           [](const IPMOpt& self, py::object x) {
              if (!x.is_none())
                return self.create_opt_vector(x.cast<std::shared_ptr<Vec>>());
              return self.create_opt_vector();
            }, py::arg("x") = py::none())
-      .def("set_multipliers_value", &IPOpt::set_multipliers_value)
-      .def("set_design_vars_value", &IPOpt::set_design_vars_value)
-      .def("copy_multipliers", &IPOpt::copy_multipliers)
-      .def("copy_design_vars", &IPOpt::copy_design_vars)
-      .def("initialize_multipliers_and_slacks", &IPOpt::initialize_multipliers_and_slacks)
-      .def("compute_residual", &IPOpt::compute_residual)
-      .def("compute_update", &IPOpt::compute_update)
-      .def("compute_diagonal", &IPOpt::compute_diagonal)
+      .def("set_multipliers_value", &IPMOpt::set_multipliers_value)
+      .def("set_design_vars_value", &IPMOpt::set_design_vars_value)
+      .def("copy_multipliers", &IPMOpt::copy_multipliers)
+      .def("copy_design_vars", &IPMOpt::copy_design_vars)
+      .def("initialize_multipliers_and_slacks", &IPMOpt::initialize_multipliers_and_slacks)
+      .def("compute_residual", &IPMOpt::compute_residual)
+      .def("compute_update", &IPMOpt::compute_update)
+      .def("compute_diagonal", &IPMOpt::compute_diagonal)
       .def("compute_max_step",
-           [](const IPOpt& self, double tau,
+           [](const IPMOpt& self, double tau,
               std::shared_ptr<OV> vars, std::shared_ptr<OV> upd) {
              double ax = 1.0, az = 1.0; int xi = -1, zi = -1;
              self.compute_max_step(tau, vars, upd, ax, xi, az, zi);
              return py::make_tuple(ax, xi, az, zi);
            })
-      .def("apply_step_update", &IPOpt::apply_step_update)
+      .def("apply_step_update", &IPMOpt::apply_step_update)
       .def("compute_complementarity",
-           [](const IPOpt& self, std::shared_ptr<OV> vars) {
+           [](const IPMOpt& self, std::shared_ptr<OV> vars) {
              double avg, xi;
              self.compute_complementarity(vars, avg, xi);
              return py::make_tuple(avg, xi);
            }, py::arg("vars"))
       .def("compute_complementarity_sq",
-           [](const IPOpt& self, std::shared_ptr<OV> vars) {
+           [](const IPMOpt& self, std::shared_ptr<OV> vars) {
              double sq;
              self.compute_complementarity_sq(vars, sq);
              return sq;
            }, py::arg("vars"))
       .def("compute_max_comp_deviation",
-           [](const IPOpt& self, std::shared_ptr<OV> vars, double mu) {
+           [](const IPMOpt& self, std::shared_ptr<OV> vars, double mu) {
              double md;
              self.compute_max_comp_deviation(vars, mu, md);
              return md;
            }, py::arg("vars"), py::arg("mu"))
-      .def("compute_barrier_log_sum", &IPOpt::compute_barrier_log_sum,
+      .def("compute_barrier_log_sum", &IPMOpt::compute_barrier_log_sum,
            py::arg("barrier_param"), py::arg("vars"))
-      .def("compute_barrier_dphi", &IPOpt::compute_barrier_dphi,
+      .def("compute_barrier_dphi", &IPMOpt::compute_barrier_dphi,
            py::arg("barrier_param"), py::arg("vars"), py::arg("update"),
            py::arg("res"), py::arg("px"), py::arg("diag"))
-      .def("reset_bound_multipliers", &IPOpt::reset_bound_multipliers,
+      .def("reset_bound_multipliers", &IPMOpt::reset_bound_multipliers,
            py::arg("barrier_param"), py::arg("kappa_sigma"), py::arg("vars"))
+      .def("compute_constraint_violation_1norm",
+           &IPMOpt::compute_constraint_violation_1norm,
+           py::arg("vars"), py::arg("grad"))
       .def("compute_kkt_error",
-           [](const IPOpt& self, std::shared_ptr<OV> vars, std::shared_ptr<Vec> grad) {
+           [](const IPMOpt& self, std::shared_ptr<OV> vars, std::shared_ptr<Vec> grad) {
              double d, p, c;
              self.compute_kkt_error(vars, grad, d, p, c);
              return py::make_tuple(d, p, c);
            }, py::arg("vars"), py::arg("grad"))
       .def("compute_kkt_error_mu",
-           [](const IPOpt& self, double mu, std::shared_ptr<OV> vars, std::shared_ptr<Vec> grad) {
+           [](const IPMOpt& self, double mu, std::shared_ptr<OV> vars, std::shared_ptr<Vec> grad) {
              double d, p, c;
              self.compute_kkt_error_mu(mu, vars, grad, d, p, c);
              return py::make_tuple(d, p, c);
            }, py::arg("mu"), py::arg("vars"), py::arg("grad"))
       .def("compute_residual_and_infeasibility",
-           [](const IPOpt& self, double mu,
+           [](const IPMOpt& self, double mu,
               std::shared_ptr<OV> vars, std::shared_ptr<Vec> grad,
               std::shared_ptr<Vec> res) {
              double d, p;
@@ -642,29 +646,56 @@ PYBIND11_MODULE(amigo, mod) {
              return py::make_tuple(d, p);
            }, py::arg("barrier_param"), py::arg("vars"), py::arg("grad"), py::arg("res"))
       .def("get_kkt_element_counts",
-           [](const IPOpt& self) {
+           [](const IPMOpt& self) {
              int d, p, c;
              self.get_kkt_element_counts(d, p, c);
              return py::make_tuple(d, p, c);
            })
-      .def("compute_affine_start_point", &IPOpt::compute_affine_start_point)
-      .def("compute_dual_residual_vector", &IPOpt::compute_dual_residual_vector,
+      .def("compute_affine_start_point", &IPMOpt::compute_affine_start_point)
+      .def("compute_dual_residual_vector", &IPMOpt::compute_dual_residual_vector,
            py::arg("vars"), py::arg("grad"), py::arg("output"))
-      .def("check_update", &IPOpt::check_update)
+      .def("check_update", &IPMOpt::check_update)
       .def("get_lbx",
-           [](const IPOpt& self) {
+           [](const IPMOpt& self) {
              const auto& v = *self.get_lbx();
              const double* a = v.template get_array<detail::policy>();
              return std::vector<double>(a, a + v.get_size());
            })
       .def("get_ubx",
-           [](const IPOpt& self) {
+           [](const IPMOpt& self) {
              const auto& v = *self.get_ubx();
              const double* a = v.template get_array<detail::policy>();
              return std::vector<double>(a, a + v.get_size());
            })
-      .def("get_num_inequalities", &IPOpt::get_num_inequalities)
-      .def("get_num_design_variables", &IPOpt::get_num_design_variables)
-      .def("relax_bounds", &IPOpt::relax_bounds,
-           py::arg("factor") = 1e-8, py::arg("constr_viol_tol") = 1e-4);
+      .def("get_lbx_relaxed",
+           [](const IPMOpt& self) {
+             const auto& v = *self.get_lbx_relaxed();
+             const double* a = v.template get_array<detail::policy>();
+             return std::vector<double>(a, a + v.get_size());
+           })
+      .def("get_ubx_relaxed",
+           [](const IPMOpt& self) {
+             const auto& v = *self.get_ubx_relaxed();
+             const double* a = v.template get_array<detail::policy>();
+             return std::vector<double>(a, a + v.get_size());
+           })
+      .def("get_num_inequalities", &IPMOpt::get_num_inequalities)
+      .def("get_num_design_variables", &IPMOpt::get_num_design_variables)
+      .def("relax_bounds", &IPMOpt::relax_bounds,
+           py::arg("factor") = 1e-8, py::arg("constr_viol_tol") = 1e-4)
+      .def("set_slack_mapping",
+           [](IPMOpt& self, py::array_t<int> slack_indices,
+              py::array_t<int> constr_indices) {
+             if (slack_indices.size() != constr_indices.size()) {
+               throw std::invalid_argument(
+                   "slack_indices and constr_indices must have the same length");
+             }
+             self.set_slack_mapping(
+                 static_cast<int>(slack_indices.size()),
+                 slack_indices.data(), constr_indices.data());
+           },
+           py::arg("slack_indices"), py::arg("constr_indices"))
+      .def("initialize_slacks", &IPMOpt::initialize_slacks,
+           py::arg("grad"), py::arg("vars"))
+      .def("has_slacks", &IPMOpt::has_slacks);
 }
