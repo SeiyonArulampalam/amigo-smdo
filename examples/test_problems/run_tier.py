@@ -54,9 +54,11 @@ PROBLEMS = {
     "tier2": {
         "description": "Larger scale / structural challenges",
         "problems": {
+            "hs87": "6+6 vars, 7 eq : piecewise cost, multiple local minima",
+            "hs99": "7 vars, 2 eq : ODE-like trajectory, cumulative states",
             "hs109": "9 vars, 4 ineq + 6 eq : trig, infeasible start",
             "hs117": "15 vars, 5 ineq : nonconvex QP, matrix structure",
-            "hs118": "15 vars, 17 ineq : large inequality system",
+            "hs118": "15 vars, 29 ineq : large inequality system",
             "hs119": "16 vars, 8 eq : largest HS, dense quartic Hessian",
         },
     },
