@@ -67,10 +67,23 @@ struct State {
   T* xlam = nullptr;
   T* zl = nullptr;
   T* zu = nullptr;
+  T* sl = nullptr;  // lower bound slack: sl[i] ≈ x[i] - lbx[i], always > 0
+  T* su = nullptr;  // upper bound slack: su[i] ≈ ubx[i] - x[i], always > 0
 
   template <ExecPolicy policy, typename R>
   static State make(std::shared_ptr<OptVector<R>> vars);
 };
+
+// Initialize stored bound slacks from current primal values.
+// Must be called after project_primals_into_interior.
+template <typename T>
+void initialize_slacks(const ProblemInfo<T>& p, const T* xlam, T* sl, T* su) {
+  for (int i = 0; i < p.n_primal; i++) {
+    T x = xlam[p.primal_indices[i]];
+    sl[i] = std::isinf(p.lbx[i]) ? T(1) : (x - p.lbx[i]);
+    su[i] = std::isinf(p.ubx[i]) ? T(1) : (p.ubx[i] - x);
+  }
+}
 
 // Utilities
 
@@ -183,7 +196,6 @@ void compute_residual(T mu, const ProblemInfo<T>& p,
                       State<const T>& s, const T* grad, T* res) {
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx];
 
     // Stationarity residual (Blocks 1-2: rhs_x or rhs_s)
     T rhs_stat = grad[idx] - s.zl[i] + s.zu[i];
@@ -191,11 +203,11 @@ void compute_residual(T mu, const ProblemInfo<T>& p,
     // Condense complementarity into stationarity
     T aug = rhs_stat;
     if (!std::isinf(p.lbx[i])) {
-      T gap = x - p.lbx[i];
+      T gap = s.sl[i];
       aug += (gap * s.zl[i] - mu) / gap;   // +rhs_complL / gap_L
     }
     if (!std::isinf(p.ubx[i])) {
-      T gap = p.ubx[i] - x;
+      T gap = s.su[i];
       aug -= (gap * s.zu[i] - mu) / gap;   // -rhs_complU / gap_U
     }
     res[idx] = -aug;
@@ -219,7 +231,6 @@ void compute_residual_and_infeasibility(
 
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx];
 
     // Stationarity residual (un-condensed, for monitoring)
     T rhs_stat = grad[idx] - s.zl[i] + s.zu[i];
@@ -228,11 +239,11 @@ void compute_residual_and_infeasibility(
     // Condense complementarity into stationarity
     T aug = rhs_stat;
     if (!std::isinf(p.lbx[i])) {
-      T gap = x - p.lbx[i];
+      T gap = s.sl[i];
       aug += (gap * s.zl[i] - mu) / gap;
     }
     if (!std::isinf(p.ubx[i])) {
-      T gap = p.ubx[i] - x;
+      T gap = s.su[i];
       aug -= (gap * s.zu[i] - mu) / gap;
     }
     res[idx] = -aug;
@@ -257,10 +268,9 @@ template <typename T>
 void compute_diagonal(const ProblemInfo<T>& p, State<const T>& s, T* diag) {
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx];
     T sigma = T(0);
-    if (!std::isinf(p.lbx[i])) sigma += s.zl[i] / (x - p.lbx[i]);
-    if (!std::isinf(p.ubx[i])) sigma += s.zu[i] / (p.ubx[i] - x);
+    if (!std::isinf(p.lbx[i])) sigma += s.zl[i] / s.sl[i];
+    if (!std::isinf(p.ubx[i])) sigma += s.zu[i] / s.su[i];
     diag[idx] = sigma;
   }
   for (int j = 0; j < p.n_constraints; j++) {
@@ -286,16 +296,16 @@ void compute_bound_dual_step(T mu, const ProblemInfo<T>& p,
                              T* dzl, T* dzu) {
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx], dx = px[idx];
+    T dx = px[idx];
     dzl[i] = dzu[i] = 0.0;
 
     if (!std::isinf(p.lbx[i])) {
-      T gap = x - p.lbx[i];
+      T gap = s.sl[i];
       T rhs_complL = gap * s.zl[i] - mu;
       dzl[i] = -(rhs_complL + s.zl[i] * dx) / gap;
     }
     if (!std::isinf(p.ubx[i])) {
-      T gap = p.ubx[i] - x;
+      T gap = s.su[i];
       T rhs_complU = gap * s.zu[i] - mu;
       dzu[i] = -(rhs_complU - s.zu[i] * dx) / gap;
     }
@@ -314,11 +324,11 @@ void compute_max_step(T tau, const ProblemInfo<T>& p,
                       T& ax, int& xi, T& az, int& zi) {
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx], dx = px[idx];
+    T dx = px[idx];
 
     if (!std::isinf(p.lbx[i])) {
       if (dx < 0.0) {
-        T a = -tau * (x - p.lbx[i]) / dx;
+        T a = -tau * s.sl[i] / dx;
         if (a < ax) { ax = a; xi = idx; }
       }
       if (dzl[i] < 0.0) {
@@ -328,7 +338,7 @@ void compute_max_step(T tau, const ProblemInfo<T>& p,
     }
     if (!std::isinf(p.ubx[i])) {
       if (dx > 0.0) {
-        T a = tau * (p.ubx[i] - x) / dx;
+        T a = tau * s.su[i] / dx;
         if (a < ax) { ax = a; xi = idx; }
       }
       if (dzu[i] < 0.0) {
@@ -348,13 +358,20 @@ void apply_step(T ax, T az, const ProblemInfo<T>& p,
                 State<const T>& s, const T* dxlam,
                 const T* dzl, const T* dzu,
                 T* xlam_new, int n_xlam,
-                T* zl_new, T* zu_new) {
+                T* zl_new, T* zu_new,
+                T* sl_new, T* su_new) {
   for (int i = 0; i < n_xlam; i++) {
     xlam_new[i] = s.xlam[i] + ax * dxlam[i];
   }
   for (int i = 0; i < p.n_primal; i++) {
     if (!std::isinf(p.lbx[i])) zl_new[i] = s.zl[i] + az * dzl[i];
     if (!std::isinf(p.ubx[i])) zu_new[i] = s.zu[i] + az * dzu[i];
+  }
+  for (int i = 0; i < p.n_primal; i++) {
+    int idx = p.primal_indices[i];
+    T dx = ax * dxlam[idx];
+    if (!std::isinf(p.lbx[i])) sl_new[i] = s.sl[i] + dx;
+    if (!std::isinf(p.ubx[i])) su_new[i] = s.su[i] - dx;
   }
 }
 
@@ -364,14 +381,13 @@ template <typename T>
 void compute_complementarity(const ProblemInfo<T>& p, State<const T>& s,
                              T partial_sum[], T& local_min) {
   for (int i = 0; i < p.n_primal; i++) {
-    T x = s.xlam[p.primal_indices[i]];
     if (!std::isinf(p.lbx[i])) {
-      T c = (x - p.lbx[i]) * s.zl[i];
+      T c = s.sl[i] * s.zl[i];
       partial_sum[0] += c; partial_sum[1] += 1.0;
       local_min = A2D::min2(local_min, c);
     }
     if (!std::isinf(p.ubx[i])) {
-      T c = (p.ubx[i] - x) * s.zu[i];
+      T c = s.su[i] * s.zu[i];
       partial_sum[0] += c; partial_sum[1] += 1.0;
       local_min = A2D::min2(local_min, c);
     }
@@ -384,11 +400,10 @@ void compute_max_comp_deviation(const ProblemInfo<T>& p, State<const T>& s,
                                 T mu, T& max_dev) {
   max_dev = 0.0;
   for (int i = 0; i < p.n_primal; i++) {
-    T x = s.xlam[p.primal_indices[i]];
     if (!std::isinf(p.lbx[i]))
-      max_dev = A2D::max2(max_dev, std::abs((x - p.lbx[i]) * s.zl[i] - mu));
+      max_dev = A2D::max2(max_dev, std::abs(s.sl[i] * s.zl[i] - mu));
     if (!std::isinf(p.ubx[i]))
-      max_dev = A2D::max2(max_dev, std::abs((p.ubx[i] - x) * s.zu[i] - mu));
+      max_dev = A2D::max2(max_dev, std::abs(s.su[i] * s.zu[i] - mu));
   }
 }
 
@@ -398,12 +413,11 @@ void compute_complementarity_sq(const ProblemInfo<T>& p, State<const T>& s,
                                 T mu, T& sq) {
   sq = 0.0;
   for (int i = 0; i < p.n_primal; i++) {
-    T x = s.xlam[p.primal_indices[i]];
     if (!std::isinf(p.lbx[i])) {
-      T r = (x - p.lbx[i]) * s.zl[i] - mu; sq += r * r;
+      T r = s.sl[i] * s.zl[i] - mu; sq += r * r;
     }
     if (!std::isinf(p.ubx[i])) {
-      T r = (p.ubx[i] - x) * s.zu[i] - mu; sq += r * r;
+      T r = s.su[i] * s.zu[i] - mu; sq += r * r;
     }
   }
 }
@@ -419,12 +433,11 @@ void compute_kkt_error(T mu, const ProblemInfo<T>& p, State<const T>& s,
 
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx];
     dual = A2D::max2(dual, std::abs(grad[idx] - s.zl[i] + s.zu[i]));
     if (!std::isinf(p.lbx[i]))
-      comp = A2D::max2(comp, std::abs((x - p.lbx[i]) * s.zl[i] - mu));
+      comp = A2D::max2(comp, std::abs(s.sl[i] * s.zl[i] - mu));
     if (!std::isinf(p.ubx[i]))
-      comp = A2D::max2(comp, std::abs((p.ubx[i] - x) * s.zu[i] - mu));
+      comp = A2D::max2(comp, std::abs(s.su[i] * s.zu[i] - mu));
   }
   for (int j = 0; j < p.n_constraints; j++) {
     int idx = p.constraint_indices[j];
@@ -438,9 +451,8 @@ template <typename T>
 T compute_barrier_log_sum(T mu, const ProblemInfo<T>& p, State<const T>& s) {
   T b = 0.0;
   for (int i = 0; i < p.n_primal; i++) {
-    T x = s.xlam[p.primal_indices[i]];
-    if (!std::isinf(p.lbx[i])) { T g = x - p.lbx[i]; if (g > 0) b -= mu * std::log(g); }
-    if (!std::isinf(p.ubx[i])) { T g = p.ubx[i] - x; if (g > 0) b -= mu * std::log(g); }
+    if (!std::isinf(p.lbx[i])) { T g = s.sl[i]; if (g > 0) b -= mu * std::log(g); }
+    if (!std::isinf(p.ubx[i])) { T g = s.su[i]; if (g > 0) b -= mu * std::log(g); }
   }
   return b;
 }
@@ -454,10 +466,10 @@ T compute_barrier_dphi(T mu, const ProblemInfo<T>& p, State<const T>& s,
   T d = 0.0;
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx], dx = px[idx];
+    T dx = px[idx];
     d += grad[idx] * dx;
-    if (!std::isinf(p.lbx[i])) d -= mu * dx / (x - p.lbx[i]);
-    if (!std::isinf(p.ubx[i])) d += mu * dx / (p.ubx[i] - x);
+    if (!std::isinf(p.lbx[i])) d -= mu * dx / s.sl[i];
+    if (!std::isinf(p.ubx[i])) d += mu * dx / s.su[i];
   }
   return d;
 }
@@ -469,13 +481,12 @@ template <typename T>
 void reset_bound_multipliers(T mu, T kappa, const ProblemInfo<T>& p,
                              State<const T>& s, T* zl_out, T* zu_out) {
   for (int i = 0; i < p.n_primal; i++) {
-    T x = s.xlam[p.primal_indices[i]];
     if (!std::isinf(p.lbx[i])) {
-      T g = x - p.lbx[i];
+      T g = s.sl[i];
       zl_out[i] = A2D::max2(A2D::min2(s.zl[i], kappa * mu / g), mu / (kappa * g));
     }
     if (!std::isinf(p.ubx[i])) {
-      T g = p.ubx[i] - x;
+      T g = s.su[i];
       zu_out[i] = A2D::max2(A2D::min2(s.zu[i], kappa * mu / g), mu / (kappa * g));
     }
   }
@@ -501,15 +512,14 @@ void compute_kkt_error_sq(const ProblemInfo<T>& p, State<const T>& s,
 
   for (int i = 0; i < p.n_primal; i++) {
     int idx = p.primal_indices[i];
-    T x = s.xlam[idx];
     T rd = grad[idx] - s.zl[i] + s.zu[i];
     dual_sq += rd * rd;
     if (!std::isinf(p.lbx[i])) {
-      T c = (x - p.lbx[i]) * s.zl[i];
+      T c = s.sl[i] * s.zl[i];
       comp_sq += c * c;
     }
     if (!std::isinf(p.ubx[i])) {
-      T c = (p.ubx[i] - x) * s.zu[i];
+      T c = s.su[i] * s.zu[i];
       comp_sq += c * c;
     }
   }

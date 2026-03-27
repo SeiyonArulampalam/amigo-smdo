@@ -564,7 +564,23 @@ PYBIND11_MODULE(amigo, mod) {
              self.get_bound_duals<detail::policy>(&zl, &zu);
              int n = self.get_n_primal();
              return std::vector<double>(zu, zu + n);
-           });
+           })
+      .def("get_sl",
+           [](const amigo::OptVector<double>& self) {
+             const double *sl, *su;
+             self.get_bound_slacks<detail::policy>(&sl, &su);
+             int n = self.get_n_primal();
+             return std::vector<double>(sl, sl + n);
+           })
+      .def("get_su",
+           [](const amigo::OptVector<double>& self) {
+             const double *sl, *su;
+             self.get_bound_slacks<detail::policy>(&sl, &su);
+             int n = self.get_n_primal();
+             return std::vector<double>(su, su + n);
+           })
+      .def("get_slacks",
+           [](amigo::OptVector<double>& self) { return self.get_slacks(); });
 
   using IPMOpt = amigo::InteriorPointOptimizer<double, detail::policy>;
   using OV = amigo::OptVector<double>;
@@ -620,6 +636,9 @@ PYBIND11_MODULE(amigo, mod) {
       .def("compute_barrier_dphi", &IPMOpt::compute_barrier_dphi,
            py::arg("barrier_param"), py::arg("vars"), py::arg("update"),
            py::arg("res"), py::arg("px"), py::arg("diag"))
+      .def("compute_barrier_dphi_direct", &IPMOpt::compute_barrier_dphi_direct,
+           py::arg("barrier_param"), py::arg("vars"), py::arg("grad"),
+           py::arg("px"))
       .def("reset_bound_multipliers", &IPMOpt::reset_bound_multipliers,
            py::arg("barrier_param"), py::arg("kappa_sigma"), py::arg("vars"))
       .def("compute_constraint_violation_1norm",

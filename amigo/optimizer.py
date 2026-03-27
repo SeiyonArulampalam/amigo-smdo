@@ -1320,6 +1320,10 @@ class Filter:
         ]
         self.entries.append((phi_entry, theta_entry))
 
+    def clear(self):
+        """Remove all filter entries."""
+        self.entries.clear()
+
     def __len__(self):
         return len(self.entries)
 
@@ -1527,9 +1531,9 @@ class Optimizer:
             "constr_viol_tol": 1e-4,
             "compl_inf_tol": 1e-4,
             "diverging_iterates_tol": 1e20,
-            "fraction_to_boundary": 0.95,
-            "initial_barrier_param": 0.1,
-            "max_line_search_iterations": 10,
+            "fraction_to_boundary": 0.99,
+            "initial_barrier_param": 1.0,
+            "max_line_search_iterations": 40,
             "check_update_step": False,
             "backtracking_factor": 0.5,
             "record_components": [],
@@ -1564,6 +1568,11 @@ class Optimizer:
             "filter_max_soc": 4,
             "filter_kappa_soc": 0.99,
             "filter_restoration_max_iter": 20,  # Max restoration iterations
+            "filter_reset_trigger": 5,  # Consecutive filter rejections before reset
+            "max_filter_resets": 5,  # Maximum number of filter resets per subproblem
+            # Watchdog procedure
+            "watchdog_shortened_iter_trigger": 10,  # 0 = disable watchdog
+            "watchdog_trial_iter_max": 3,  # Max trial iterations in watchdog
             # Acceptable convergence
             "acceptable_tol": 1e-6,
             "acceptable_iter": 15,
@@ -1589,20 +1598,20 @@ class Optimizer:
             "mu_linear_decrease_factor": 0.2,  # kappa_mu for monotone decrease
             "mu_superlinear_decrease_power": 1.5,  # theta_mu for superlinear
             "barrier_tol_factor": 10.0,  # kappa_eps: reduce when E_mu <= kappa_eps*mu
-            "adaptive_mu_globalization": "kkt-error",  # "kkt-error" or "obj-constr-filter" or "never-monotone"
+            "adaptive_mu_globalization": "obj-constr-filter",
             "adaptive_mu_kkterror_red_iters": 4,  # l_max reference values
             "adaptive_mu_kkterror_red_fact": 0.9999,  # kappa_red
             "adaptive_mu_monotone_init_factor": 0.8,  # mu_bar = factor * avg_comp
             "adaptive_mu_safeguard_factor": 0.0,  # 0 = disabled
-            "quality_function_sigma_max": 4.0,
+            "quality_function_sigma_max": 100.0,
             "quality_function_sigma_min": 1e-6,
             "quality_function_section_sigma_tol": 1e-2,
             "quality_function_section_qf_tol": 0.0,
-            "quality_function_golden_iters": 12,
+            "quality_function_golden_iters": 8,
             "quality_function_norm_scaling": True,
             "quality_function_centrality": "none",  # "none","log","reciprocal","cubed-reciprocal"
             "quality_function_balancing_term": "none",  # "none","cubic"
-            "quality_function_predictor_corrector": True,
+            "quality_function_predictor_corrector": False,
             "nlp_scaling_max_gradient": 100.0,
             "debug_cycling": False,
         }
@@ -1637,6 +1646,131 @@ class Optimizer:
         """Reduce barrier when subproblem is solved: res <= kappa_eps * mu."""
         barrier_tol = kappa_epsilon * barrier_param
         return res_norm <= barrier_tol
+
+    def _ensure_positive_slacks(self, vars_obj, mu):
+        """Floor stored slacks to prevent ill-conditioning at tiny mu.
+
+        For each bounded primal where sl < s_min = eps * min(1, mu):
+          new_sl = min(max(mu / z, s_min), slack_move * max(1, |bound|) + sl)
+        Also adjusts the primal x to be consistent: x = lb + new_sl.
+        """
+        eps = np.finfo(np.float64).eps
+        s_min = eps * min(1.0, mu)
+        if s_min == 0.0:
+            s_min = np.finfo(np.float64).tiny
+        slack_move = 1.81898940354586e-12  # epsilon^{3/4}
+
+        # Read stored slacks (always positive from incremental update)
+        sl = np.array(vars_obj.get_sl())
+        su = np.array(vars_obj.get_su())
+        lbx = np.array(self.optimizer.get_lbx())
+        ubx = np.array(self.optimizer.get_ubx())
+        zl = np.array(vars_obj.get_zl())
+        zu = np.array(vars_obj.get_zu())
+        fl = np.isfinite(lbx)
+        fu = np.isfinite(ubx)
+
+        adjusted = 0
+        need_sync = False
+
+        # Lower slacks
+        if np.any(fl):
+            sl_f = sl[fl]
+            if np.min(sl_f) < s_min:
+                small = sl_f < s_min
+                idx = np.where(fl)[0][small]
+                g = np.maximum(sl_f[small], 0.0)
+                z_vals = np.maximum(zl[idx], np.finfo(np.float64).tiny)
+                target = np.maximum(mu / z_vals, s_min)
+                cap = slack_move * np.maximum(1.0, np.abs(lbx[idx])) + g
+                sl[idx] = np.minimum(target, cap)
+                adjusted += int(np.sum(small))
+                need_sync = True
+
+        # Upper slacks
+        if np.any(fu):
+            su_f = su[fu]
+            if np.min(su_f) < s_min:
+                small = su_f < s_min
+                idx = np.where(fu)[0][small]
+                g = np.maximum(su_f[small], 0.0)
+                z_vals = np.maximum(zu[idx], np.finfo(np.float64).tiny)
+                target = np.maximum(mu / z_vals, s_min)
+                cap = slack_move * np.maximum(1.0, np.abs(ubx[idx])) + g
+                su[idx] = np.minimum(target, cap)
+                adjusted += int(np.sum(small))
+                need_sync = True
+
+        if need_sync:
+            # Update stored slacks
+            slacks_arr = vars_obj.get_slacks().get_array()
+            n_p = len(lbx)
+            slacks_arr[:n_p] = sl
+            slacks_arr[n_p:] = su
+            vars_obj.get_slacks().copy_host_to_device()
+
+            # Keep primals consistent: x = lb + sl, x = ub - su
+            sol_arr = vars_obj.get_solution().get_array()
+            pi = np.where(~self._qf_mult_ind)[0]  # primal indices in xlam
+            for i in np.where(fl)[0]:
+                sol_arr[pi[i]] = lbx[i] + sl[i]
+            for i in np.where(fu)[0]:
+                sol_arr[pi[i]] = ubx[i] - su[i]
+            vars_obj.get_solution().copy_host_to_device()
+
+        return adjusted
+
+    def _compute_optimality_scaling(self, mult_ind):
+        """Compute optimality error scaling factors (s_d, s_c).
+
+        Scaling factors for the optimality error:
+          s_c = max(s_max, sum(|z|) / n_bounds) / s_max
+          s_d = max(s_max, (sum(|y|) + sum(|z|)) / n_all) / s_max
+        where s_max = 100.
+        """
+        s_max = 100.0
+
+        # Bound multiplier sums: |z_L| + |z_U|
+        zl = np.array(self.vars.get_zl())
+        zu = np.array(self.vars.get_zu())
+        z_asum = float(np.sum(np.abs(zl)) + np.sum(np.abs(zu)))
+        n_bounds = int(
+            np.sum(np.isfinite(np.array(self.optimizer.get_lbx())))
+            + np.sum(np.isfinite(np.array(self.optimizer.get_ubx())))
+        )
+
+        # Constraint multiplier sum: |y_c| + |y_d|
+        xlam = self.vars.get_solution().get_array()
+        y_asum = float(np.sum(np.abs(xlam[mult_ind])))
+        n_constraints = int(np.sum(mult_ind))
+
+        # s_c: bound multiplier scaling
+        if n_bounds == 0:
+            s_c = 1.0
+        else:
+            s_c = max(s_max, z_asum / n_bounds) / s_max
+
+        # s_d: dual (stationarity) scaling
+        n_all = n_constraints + n_bounds
+        if n_all == 0:
+            s_d = 1.0
+        else:
+            s_d = max(s_max, (y_asum + z_asum) / n_all) / s_max
+
+        return s_d, s_c
+
+    def _compute_scaled_barrier_error(self, mu, mult_ind):
+        """Scaled barrier KKT error.
+
+        Scaled barrier error for the adaptive mu strategy:
+          max(dual_inf/s_d, primal_inf, complementarity(mu)/s_c)
+        All components use infinity norm.
+        """
+        d_inf, p_inf, c_inf = self.optimizer.compute_kkt_error_mu(
+            mu, self.vars, self.grad
+        )
+        s_d, s_c = self._compute_optimality_scaling(mult_ind)
+        return max(d_inf / s_d, p_inf, c_inf / s_c)
 
     # Quality-function mu oracle
 
@@ -1761,7 +1895,7 @@ class Optimizer:
             return 1.0, self.barrier_param
         mu_nat = avg_comp  # current average complementarity
 
-        # --- Solve the two linear systems (one factorization) -----------
+        # Solve the two linear systems (one factorization)
         # px0: affine-scaling direction (mu = 0)
         self.optimizer.compute_residual(0.0, self.vars, self.grad, self.res)
         dual_inf, primal_inf, _ = self.optimizer.compute_kkt_error(self.vars, self.grad)
@@ -1781,7 +1915,7 @@ class Optimizer:
 
         dpx = px1 - px0  # centering component
 
-        # --- Branch A: Mehrotra predictor-corrector (default) -----------
+        # Branch A: Mehrotra predictor-corrector
         if options["quality_function_predictor_corrector"]:
             # Affine step sizes (tau=1.0 for the probe)
             self.px.get_array()[:] = px0
@@ -1822,13 +1956,22 @@ class Optimizer:
             self._delta_aff = px0.copy()
             return sigma, new_mu
 
-        # --- Branch B: Golden-section quality function search -----------
-        tau_qf = options["fraction_to_boundary"]
-        sigma_min = max(
-            options["quality_function_sigma_min"],
-            mu_min / mu_nat if mu_nat > mu_min else 1e-6,
+        # Branch B: Golden-section quality function search
+        #
+        # Adaptive tau: near the solution nlp_error is small, so tau -> 1,
+        # giving the affine direction its full step credit.
+        d_inf_qf, p_inf_qf, c_inf_qf = self.optimizer.compute_kkt_error_mu(
+            0.0, self.vars, self.grad
         )
-        sigma_max = options["quality_function_sigma_max"]
+        s_d_qf, s_c_qf = self._compute_optimality_scaling(self._qf_mult_ind)
+        nlp_error_qf = max(d_inf_qf / s_d_qf, p_inf_qf, c_inf_qf / s_c_qf)
+        tau_qf = max(options["tau_min"], 1.0 - nlp_error_qf)
+        # sigma_lo = max(sigma_min, mu_min / avrg_compl)
+        sigma_lo_opt = max(
+            options["quality_function_sigma_min"],
+            mu_min / mu_nat,
+        )
+        sigma_up_opt = min(options["quality_function_sigma_max"], mu_max / mu_nat)
         n_gs = options["quality_function_golden_iters"]
         sigma_tol = options["quality_function_section_sigma_tol"]
         qf_tol = options["quality_function_section_qf_tol"]
@@ -1855,19 +1998,35 @@ class Optimizer:
 
         # Determine search direction by testing slope at sigma=1
         tol_probe = max(1e-4, sigma_tol)
+        sigma_1m = 1.0 - tol_probe
         qf_1 = _eval(1.0)
-        qf_1m = _eval(1.0 - tol_probe)
+        qf_1m = _eval(sigma_1m)
+
+        if comm_rank == 0 and options.get("verbose_barrier"):
+            print(
+                f"  QF slope: qf(1-)={qf_1m:.4e}, qf(1)={qf_1:.4e}, "
+                f"search={'>' if qf_1m > qf_1 else '<'}1, "
+                f"tau={tau_qf:.6f}, nlp_err={nlp_error_qf:.2e}"
+            )
 
         if qf_1m > qf_1:
-            # QF decreases for sigma > 1 → search [1, sigma_max]
-            sigma_star, _ = self._golden_section(
-                _eval, 1.0, sigma_max, sigma_tol, qf_tol, n_gs
-            )
+            # QF decreases for sigma > 1 → search [1, sigma_up]
+            if 1.0 >= sigma_up_opt:
+                sigma_star = sigma_up_opt
+            else:
+                sigma_star, _ = self._golden_section(
+                    _eval, 1.0, sigma_up_opt, sigma_tol, qf_tol, n_gs
+                )
         else:
-            # QF decreases for sigma < 1 → search [sigma_min, 1]
-            sigma_star, _ = self._golden_section(
-                _eval, sigma_min, 1.0, sigma_tol, qf_tol, n_gs
-            )
+            # QF decreases for sigma < 1 → search [sigma_lo, sigma_1m]
+            # sigma_up = min(max(sigma_lo, sigma_1minus), mu_max/avrg_compl)
+            gs_up = min(max(sigma_lo_opt, sigma_1m), mu_max / mu_nat)
+            if sigma_lo_opt >= gs_up:
+                sigma_star = sigma_lo_opt
+            else:
+                sigma_star, _ = self._golden_section(
+                    _eval, sigma_lo_opt, gs_up, sigma_tol, qf_tol, n_gs
+                )
 
         new_mu = sigma_star * mu_nat
         new_mu = max(new_mu, mu_min)
@@ -2208,13 +2367,13 @@ class Optimizer:
         pi = np.where(~mult_ind)[0]  # primal indices (design + slacks)
         ci = np.where(mult_ind)[0]  # constraint indices (eq + ineq)
 
-        # Gaps and finite-bound masks (primal-sized)
-        gap_l = x[pi] - lbx
-        gap_u = ubx - x[pi]
+        # Stored slacks (always positive, updated incrementally in C++)
+        sl = np.array(self.vars.get_sl())
+        su = np.array(self.vars.get_su())
         fl = np.isfinite(lbx)
         fu = np.isfinite(ubx)
-        gl = np.where(fl, gap_l, 1.0)  # safe for division
-        gu = np.where(fu, gap_u, 1.0)
+        gl = np.where(fl, sl, 1.0)
+        gu = np.where(fu, su, 1.0)
 
         # Sigma = zl/gap_l + zu/gap_u (barrier diagonal, primal-sized)
         sigma = np.where(fl, zl / gl, 0.0) + np.where(fu, zu / gu, 0.0)
@@ -2462,12 +2621,12 @@ class Optimizer:
             ubx = np.array(self.optimizer.get_ubx())
             dvi = np.where(~mult_ind)[0]
             x_design = x_arr[dvi]
-            gap_l = x_design - lbx
-            gap_u = ubx - x_design
+            sl_arr = np.array(self.vars.get_sl())
+            su_arr = np.array(self.vars.get_su())
             finite_l = np.isfinite(lbx)
             finite_u = np.isfinite(ubx)
-            comp_l = np.where(finite_l, zl_arr * gap_l, 0.0)
-            comp_u = np.where(finite_u, zu_arr * gap_u, 0.0)
+            comp_l = np.where(finite_l, zl_arr * sl_arr, 0.0)
+            comp_u = np.where(finite_u, zu_arr * su_arr, 0.0)
             mu = self.barrier_param
             dev_l = np.abs(comp_l - mu)
             dev_u = np.abs(comp_u - mu)
@@ -2707,11 +2866,12 @@ class Optimizer:
         tau=0.995,
         mult_ind=None,
         phi_current=None,
+        watchdog_ref=None,
+        watchdog_alpha_primal_test=None,
     ):
-        """Filter line search (Algorithm A, Wächter & Biegler 2006).
+        """Filter line search with second-order correction.
 
-        Implements the filter line search from Wächter & Biegler 2006:
-        theta uses 1-norm, Compare_le tolerance in Armijo/sufficient-decrease,
+        Uses 1-norm theta, Compare_le tolerance in Armijo/sufficient-decrease,
         post-acceptance filter augmentation via f-type and Armijo re-check,
         and SOC acceptance uses the original alpha_primal_test.
 
@@ -2731,6 +2891,11 @@ class Optimizer:
             Multiplier indicator for SOC.
         phi_current : float
             Barrier objective at the current iterate.
+        watchdog_ref : tuple or None
+            If not None, (ref_theta, ref_barr, ref_dphi) from watchdog saved
+            iterate. Overrides current-point reference values.
+        watchdog_alpha_primal_test : float or None
+            If not None, the saved alpha_primal_test from watchdog iterate.
 
         Returns
         -------
@@ -2740,6 +2905,9 @@ class Optimizer:
             Number of backtracking iterations.
         step_accepted : bool
             False if step was rejected (triggers restoration).
+        filter_rejected : bool
+            True if the last rejection in backtracking was due to the filter
+            (as opposed to iterate test or theta_max).
         """
         # Constants
         max_iters = options["max_line_search_iterations"]
@@ -2757,17 +2925,20 @@ class Optimizer:
         use_soc = options["second_order_correction"] and mult_ind is not None
         EPS10 = 10.0 * np.finfo(float).eps
 
-        # Reference values
-        ref_theta = self._compute_filter_theta()
-        ref_barr = phi_current
-        ref_dphi = self.optimizer.compute_barrier_dphi(
-            self.barrier_param,
-            self.vars,
-            self.update,
-            self.res,
-            self.px,
-            self.diag,
-        )
+        # Reference values — use watchdog overrides if provided
+        if watchdog_ref is not None:
+            ref_theta, ref_barr, ref_dphi = watchdog_ref
+        else:
+            ref_theta = self._compute_filter_theta()
+            ref_barr = phi_current
+            ref_dphi = self.optimizer.compute_barrier_dphi(
+                self.barrier_param,
+                self.vars,
+                self.update,
+                self.res,
+                self.px,
+                self.diag,
+            )
 
         # theta_min, theta_max (Eq. 21)
         theta_0 = getattr(self, "_filter_theta_0", ref_theta)
@@ -2775,15 +2946,19 @@ class Optimizer:
         theta_max = 1e4 * max(1.0, theta_0)
 
         # Alpha_min (Eq. 23)
-        alpha_min = gamma_theta
-        if ref_dphi < 0.0:
-            alpha_min = min(gamma_theta, gamma_phi * ref_theta / (-ref_dphi))
-            if ref_theta <= theta_min:
-                alpha_min = min(
-                    alpha_min,
-                    delta * ref_theta**s_theta / (-ref_dphi) ** s_phi,
-                )
-        alpha_min *= alpha_min_frac
+        # In watchdog mode, only try the full step (alpha_min = alpha_x)
+        if watchdog_ref is not None:
+            alpha_min = alpha_x
+        else:
+            alpha_min = gamma_theta
+            if ref_dphi < 0.0:
+                alpha_min = min(gamma_theta, gamma_phi * ref_theta / (-ref_dphi))
+                if ref_theta <= theta_min:
+                    alpha_min = min(
+                        alpha_min,
+                        delta * ref_theta**s_theta / (-ref_dphi) ** s_phi,
+                    )
+            alpha_min *= alpha_min_frac
 
         # f-type switching condition (Eq. 19)
         def _is_ftype(alpha_test):
@@ -2813,15 +2988,23 @@ class Optimizer:
                 <= EPS10 * abs(ref_barr)
             )
 
-        # Check acceptability of trial point
+        # Check acceptability of trial point.
+        # Returns (accepted, filter_was_reason) where filter_was_reason is True
+        # when the rejection was specifically due to the filter (not theta_max
+        # or the iterate test).
         def _check_acceptance(trial_barr, trial_theta, alpha_test):
             if trial_theta > theta_max:
-                return False
+                return False, False
+            # Iterate test: f-type (Armijo) or h-type (sufficient reduction)
             if alpha_test > 0.0 and _is_ftype(alpha_test) and ref_theta <= theta_min:
-                return _armijo_holds(trial_barr, alpha_test)
-            if not _acceptable_to_iterate(trial_barr, trial_theta):
-                return False
-            return inner_filter.is_acceptable(trial_barr, trial_theta)
+                if not _armijo_holds(trial_barr, alpha_test):
+                    return False, False
+            else:
+                if not _acceptable_to_iterate(trial_barr, trial_theta):
+                    return False, False
+            # Both paths must also pass the filter
+            filt_ok = inner_filter.is_acceptable(trial_barr, trial_theta)
+            return filt_ok, not filt_ok
 
         # Post-acceptance filter augmentation.
         # Augment filter unless f-type and Armijo both hold.
@@ -2842,6 +3025,7 @@ class Optimizer:
         # Backtracking loop
         alpha_primal = alpha_x
         n_steps = 0
+        last_rejected_by_filter = False  # track filter rejection for reset heuristic
 
         while alpha_primal > alpha_min or n_steps == 0:
             if n_steps >= max_iters:
@@ -2856,12 +3040,22 @@ class Optimizer:
             trial_theta = self._compute_filter_theta(self.temp)
             trial_barr = self._compute_barrier_objective(self.temp)
 
+            # alpha_primal_test tracks current trial alpha
             alpha_primal_test = alpha_primal
 
-            if _check_acceptance(trial_barr, trial_theta, alpha_primal_test):
+            accepted, filt_rej = _check_acceptance(
+                trial_barr, trial_theta, alpha_primal_test
+            )
+            if accepted:
                 _update_filter(trial_barr, alpha_primal_test)
                 self.vars.copy(self.temp)
-                return alpha_primal / alpha_x, n_steps + 1, True
+                return (
+                    alpha_primal / alpha_x,
+                    n_steps + 1,
+                    True,
+                    last_rejected_by_filter,
+                )
+            last_rejected_by_filter = filt_rej
 
             # SOC: second-order correction for the Maratos effect.
             #
@@ -2876,6 +3070,13 @@ class Optimizer:
             #   Solve K * delta_soc = -RHS
             #   x_trial = x_k + alpha_soc * delta_soc
             #
+            if use_soc and n_steps == 0:
+                if comm_rank == 0 and options.get("verbose_barrier"):
+                    print(
+                        f"  SOC check: trial_theta={trial_theta:.3e}, "
+                        f"ref_theta={ref_theta:.3e}, "
+                        f"trigger={'YES' if trial_theta >= ref_theta else 'no'}"
+                    )
             if use_soc and n_steps == 0 and trial_theta >= ref_theta:
                 # Initialize c_soc to current-point constraint residual
                 c_soc = res_orig.copy()  # full residual at current point
@@ -2925,7 +3126,10 @@ class Optimizer:
                     trial_barr = self._compute_barrier_objective(self.temp)
 
                     # Acceptance uses original alpha_primal_test
-                    if _check_acceptance(trial_barr, trial_theta, alpha_primal_test):
+                    soc_acc, soc_filt_rej = _check_acceptance(
+                        trial_barr, trial_theta, alpha_primal_test
+                    )
+                    if soc_acc:
                         _update_filter(trial_barr, alpha_primal_test)
                         self.vars.copy(self.temp)
                         soc_accepted = True
@@ -2934,7 +3138,9 @@ class Optimizer:
                     alpha_soc = soc_ax
 
                 if soc_accepted:
-                    return 1.0, n_steps + 1, True
+                    if comm_rank == 0:
+                        print(f"  SOC accepted (iter {soc_count+1}/{max_soc})")
+                    return 1.0, n_steps + 1, True, False
 
                 # Restore original direction for continued backtracking
                 self.update.copy(update_backup)
@@ -2946,7 +3152,7 @@ class Optimizer:
 
         # All backtracking exhausted — trigger restoration
         self._update_gradient(self.vars.get_solution())
-        return alpha_primal / alpha_x, n_steps, False
+        return alpha_primal / alpha_x, n_steps, False, last_rejected_by_filter
 
     def _restoration_phase(
         self,
@@ -3032,7 +3238,7 @@ class Optimizer:
                     if res_trial < 0.99 * res_current:
                         self.vars.copy(self.temp)
                         # Clear filter to unblock (new barrier subproblem)
-                        inner_filter.entries.clear()
+                        inner_filter.clear()
                         self._filter_theta_0 = theta_trial
                         return True
                 alpha *= backtrack
@@ -3042,7 +3248,7 @@ class Optimizer:
             # Reset the filter to unblock: this is safe because theta
             # is small (constraints are nearly satisfied).
             self._update_gradient(self.vars.get_solution())
-            inner_filter.entries.clear()
+            inner_filter.clear()
             self._filter_theta_0 = theta_k
             return True
 
@@ -3324,6 +3530,7 @@ class Optimizer:
         self._qf_sd = qf_sd
         self._qf_sp = qf_sp
         self._qf_sc = qf_sc
+        self._qf_mult_ind = mult_ind
 
         # mu bounds
         qf_mu_min = options["mu_min"]
@@ -3362,6 +3569,27 @@ class Optimizer:
         if filter_ls:
             # Track theta_0 per barrier subproblem for switching condition
             self._filter_theta_0 = None  # set after first gradient eval
+
+        # 7. Filter reset heuristic
+        count_successive_filter_rejections = 0
+        filter_reset_count = 0
+        filter_reset_trigger = options["filter_reset_trigger"]
+        max_filter_resets = options["max_filter_resets"]
+
+        # 8. Watchdog procedure
+        in_watchdog = False
+        watchdog_shortened_iter = 0
+        watchdog_trial_iter = 0
+        watchdog_iterate = None  # saved solution array
+        watchdog_delta = None  # saved search direction
+        watchdog_px = None  # saved px
+        watchdog_alpha_primal_test = 0.0
+        watchdog_theta = 0.0
+        watchdog_barr = 0.0
+        watchdog_dphi = 0.0
+        last_mu = -1.0
+        watchdog_trigger = options["watchdog_shortened_iter_trigger"]
+        watchdog_max_trials = options["watchdog_trial_iter_max"]
 
         res_norm_mu = self.barrier_param
         rhs_norm = 0.0
@@ -3427,33 +3655,7 @@ class Optimizer:
             d_inf_log, p_inf_log, c_inf_log = self.optimizer.compute_kkt_error_mu(
                 0.0, self.vars, self.grad
             )
-            # Scaling factors for overall error (same as convergence check)
-            _zl_log = np.array(self.vars.get_zl())
-            _zu_log = np.array(self.vars.get_zu())
-            _lbx_log = np.array(self.optimizer.get_lbx())
-            _ubx_log = np.array(self.optimizer.get_ubx())
-            _z_sum_log = float(np.sum(np.abs(_zl_log)) + np.sum(np.abs(_zu_log)))
-            _n_bounds_log = int(
-                np.sum(np.isfinite(_lbx_log)) + np.sum(np.isfinite(_ubx_log))
-            )
-            _xlam_log = self.vars.get_solution().get_array()
-            _lam_sum_log = float(
-                sum(abs(_xlam_log[j]) for j in range(len(_xlam_log)) if mult_ind[j])
-            )
-            _n_lam_log = int(np.sum(mult_ind))
-            _s_max_log = 100.0
-            _s_c_log = (
-                max(_s_max_log, _z_sum_log / max(_n_bounds_log, 1)) / _s_max_log
-                if _n_bounds_log > 0
-                else 1.0
-            )
-            _n_all_log = _n_lam_log + _n_bounds_log
-            _s_d_log = (
-                max(_s_max_log, (_lam_sum_log + _z_sum_log) / max(_n_all_log, 1))
-                / _s_max_log
-                if _n_all_log > 0
-                else 1.0
-            )
+            _s_d_log, _s_c_log = self._compute_optimality_scaling(mult_ind)
             _overall_log = max(d_inf_log / _s_d_log, p_inf_log, c_inf_log / _s_c_log)
 
             iter_data["inf_pr"] = p_inf_log
@@ -3479,36 +3681,7 @@ class Optimizer:
             d_inf_nlp, p_inf_nlp, c_inf_nlp = self.optimizer.compute_kkt_error_mu(
                 0.0, self.vars, self.grad
             )
-
-            # Scaling factors (same as barrier update)
-            s_max_conv = 100.0
-            zl_conv = np.array(self.vars.get_zl())
-            zu_conv = np.array(self.vars.get_zu())
-            lbx_conv = np.array(self.optimizer.get_lbx())
-            ubx_conv = np.array(self.optimizer.get_ubx())
-            z_sum_conv = float(np.sum(np.abs(zl_conv)) + np.sum(np.abs(zu_conv)))
-            n_bounds_conv = int(
-                np.sum(np.isfinite(lbx_conv)) + np.sum(np.isfinite(ubx_conv))
-            )
-            xlam_conv = self.vars.get_solution().get_array()
-            lam_sum_conv = float(
-                sum(abs(xlam_conv[j]) for j in range(len(xlam_conv)) if mult_ind[j])
-            )
-            n_lam_conv = int(np.sum(mult_ind))
-
-            if n_bounds_conv == 0:
-                s_c_conv = 1.0
-            else:
-                s_c_conv = max(s_max_conv, z_sum_conv / n_bounds_conv) / s_max_conv
-            n_all_conv = n_lam_conv + n_bounds_conv
-            if n_all_conv == 0:
-                s_d_conv = 1.0
-            else:
-                s_d_conv = (
-                    max(s_max_conv, (lam_sum_conv + z_sum_conv) / n_all_conv)
-                    / s_max_conv
-                )
-
+            s_d_conv, s_c_conv = self._compute_optimality_scaling(mult_ind)
             overall_error = max(d_inf_nlp / s_d_conv, p_inf_nlp, c_inf_nlp / s_c_conv)
 
             # Primary convergence: ALL 4 conditions must hold
@@ -3535,7 +3708,7 @@ class Optimizer:
                 break
 
             # Divergence check
-            x_max = np.max(np.abs(xlam_conv))
+            x_max = np.max(np.abs(self.vars.get_solution().get_array()))
             if x_max > diverging_iterates_tol:
                 if comm_rank == 0:
                     print(f"  Diverging iterates: max |x| = {x_max:.2e}")
@@ -3644,7 +3817,7 @@ class Optimizer:
                     self._qf_init_dual_inf = max(1.0, d0_sg)
                     self._qf_init_primal_inf = max(1.0, p0_sg)
 
-                # -- Mode switching (before direction computation) --
+                # Mode switching (before direction computation)
                 if not qf_free_mode:
                     # Fixed mode: check if we can return to free mode
                     sufficient = self._adaptive_mu_check_sufficient_progress(options)
@@ -3656,10 +3829,9 @@ class Optimizer:
                     else:
                         # Subproblem solved? → monotone decrease
                         btf = options["barrier_tol_factor"]
-                        sub_err = self.optimizer.compute_kkt_error_mu(
-                            self.barrier_param, self.vars, self.grad
+                        barrier_err = self._compute_scaled_barrier_error(
+                            self.barrier_param, mult_ind
                         )
-                        barrier_err = max(sub_err[0], sub_err[1], sub_err[2])
                         if barrier_err <= btf * self.barrier_param:
                             old_mu = self.barrier_param
                             kmu = options["mu_linear_decrease_factor"]
@@ -3698,7 +3870,7 @@ class Optimizer:
                         if sufficient:
                             self._adaptive_mu_remember_point(options)
 
-                # -- Factorize KKT system --
+                # Factorize KKT system
                 factorize_ok = self._factorize_kkt(
                     x,
                     diag_base,
@@ -3775,45 +3947,7 @@ class Optimizer:
                             # A-3 monotone with while-loop for multi-step reduction
                             while True:
                                 mu = self.barrier_param
-                                d_inf, p_inf, c_inf = (
-                                    self.optimizer.compute_kkt_error_mu(
-                                        mu, self.vars, self.grad
-                                    )
-                                )
-                                # Scaling
-                                zl_a = np.array(self.vars.get_zl())
-                                zu_a = np.array(self.vars.get_zu())
-                                lbx_a = np.array(self.optimizer.get_lbx())
-                                ubx_a = np.array(self.optimizer.get_ubx())
-                                z_sum = float(
-                                    np.sum(np.abs(zl_a)) + np.sum(np.abs(zu_a))
-                                )
-                                n_bnd = int(
-                                    np.sum(np.isfinite(lbx_a))
-                                    + np.sum(np.isfinite(ubx_a))
-                                )
-                                s_c = (
-                                    max(s_max, z_sum / n_bnd) / s_max
-                                    if n_bnd > 0
-                                    else 1.0
-                                )
-                                xlam_a = self.vars.get_solution().get_array()
-                                lam_sum = float(
-                                    sum(
-                                        abs(xlam_a[j])
-                                        for j in range(len(xlam_a))
-                                        if mult_ind[j]
-                                    )
-                                )
-                                n_lam = int(np.sum(mult_ind))
-                                n_all = n_lam + n_bnd
-                                s_d = (
-                                    max(s_max, (lam_sum + z_sum) / n_all) / s_max
-                                    if n_all > 0
-                                    else 1.0
-                                )
-                                e_mu = max(d_inf / s_d, p_inf, c_inf / s_c)
-
+                                e_mu = self._compute_scaled_barrier_error(mu, mult_ind)
                                 if e_mu > kappa_eps * mu:
                                     break
                                 old_mu = mu
@@ -3824,7 +3958,7 @@ class Optimizer:
                                     break
                                 self.barrier_param = new_mu
 
-                # -- Direction computation (non-QF) --
+                # Direction computation (non-QF)
                 if inertia_corrector:
                     inertia_corrector.update_barrier(self.barrier_param)
                 factorize_ok = self._find_direction(
@@ -3838,13 +3972,23 @@ class Optimizer:
                     comm_rank,
                 )
 
-            # -- Common: reset line search state when mu changed --
+            # Reset line search state when mu changed
             if self.barrier_param != barrier_before:
                 if inertia_corrector:
                     inertia_corrector.update_barrier(self.barrier_param)
                 if filter_ls and inner_filter is not None:
-                    inner_filter.entries.clear()
+                    inner_filter.clear()
                     self._filter_theta_0 = self._compute_filter_theta()
+                # Reset watchdog state on barrier change
+                in_watchdog = False
+                watchdog_shortened_iter = 0
+                watchdog_trial_iter = 0
+                watchdog_iterate = None
+                watchdog_delta = None
+                watchdog_px = None
+                # Reset filter reset counter for new subproblem
+                count_successive_filter_rejections = 0
+                filter_reset_count = 0
 
             # Inertia correction failed: skip line search, reject step.
             if not factorize_ok:
@@ -3939,18 +4083,156 @@ class Optimizer:
 
             # Step F: Line search and step acceptance
             if filter_ls:
+                # Watchdog: pre-line-search checks
+                # If in watchdog and factorization failed or step is tiny,
+                # stop watchdog and restore the saved iterate.
+                if in_watchdog and (not factorize_ok or alpha_x < 1e-16):
+                    # StopWatchDog: restore saved iterate
+                    self.vars.get_solution().get_array()[:] = watchdog_iterate
+                    self.vars.get_solution().copy_host_to_device()
+                    self.update.get_array()[:] = watchdog_delta
+                    self.update.copy_host_to_device()
+                    self.px.get_array()[:] = watchdog_px
+                    self.px.copy_host_to_device()
+                    self._update_gradient(self.vars.get_solution())
+                    in_watchdog = False
+                    watchdog_shortened_iter = 0
+                    if comm_rank == 0:
+                        print("  Watchdog stopped (factorization/tiny step)")
+
+                # StartWatchDog: if not in watchdog and enough shortened
+                # iterations have accumulated, save state and enter watchdog.
+                if (
+                    not in_watchdog
+                    and filter_ls
+                    and watchdog_trigger > 0
+                    and watchdog_shortened_iter >= watchdog_trigger
+                ):
+                    watchdog_iterate = self.vars.get_solution().get_array().copy()
+                    watchdog_delta = self.update.get_array().copy()
+                    watchdog_px = self.px.get_array().copy()
+                    watchdog_alpha_primal_test = alpha_x
+                    watchdog_theta = self._compute_filter_theta()
+                    watchdog_barr = self._compute_barrier_objective(self.vars)
+                    watchdog_dphi = self.optimizer.compute_barrier_dphi(
+                        self.barrier_param,
+                        self.vars,
+                        self.update,
+                        self.res,
+                        self.px,
+                        self.diag,
+                    )
+                    in_watchdog = True
+                    watchdog_trial_iter = 0
+                    if comm_rank == 0:
+                        print("  Watchdog started")
+
                 # Compute barrier objective at current point (gradient is current)
                 phi_current = self._compute_barrier_objective(self.vars)
-                alpha, line_iters, step_accepted = self._filter_line_search(
-                    alpha_x,
-                    alpha_z,
-                    inner_filter,
-                    options,
-                    comm_rank,
-                    tau=tau,
-                    mult_ind=soc_mult_ind,
-                    phi_current=phi_current,
-                )
+
+                # Build watchdog reference override if in watchdog mode
+                wd_ref = None
+                wd_apt = None
+                if in_watchdog:
+                    wd_ref = (watchdog_theta, watchdog_barr, watchdog_dphi)
+                    wd_apt = watchdog_alpha_primal_test
+
+                # Run the filter line search
+                skip_first = False  # set True by StopWatchDog retry below
+
+                # Watchdog retry loop: if watchdog max trials exceeded,
+                # restore iterate and redo line search without watchdog.
+                while True:
+                    alpha, line_iters, step_accepted, filter_rejected = (
+                        self._filter_line_search(
+                            alpha_x,
+                            alpha_z,
+                            inner_filter,
+                            options,
+                            comm_rank,
+                            tau=tau,
+                            mult_ind=soc_mult_ind,
+                            phi_current=phi_current,
+                            watchdog_ref=wd_ref if not skip_first else None,
+                            watchdog_alpha_primal_test=(
+                                wd_apt if not skip_first else None
+                            ),
+                        )
+                    )
+
+                    # Watchdog: post-line-search logic
+                    if in_watchdog and not skip_first:
+                        if step_accepted:
+                            # Watchdog succeeded: step accepted to filter,
+                            # exit watchdog mode.
+                            in_watchdog = False
+                            watchdog_shortened_iter = 0
+                            if comm_rank == 0:
+                                print("  Watchdog succeeded")
+                            break
+                        else:
+                            # Step rejected while in watchdog
+                            watchdog_trial_iter += 1
+                            if watchdog_trial_iter > watchdog_max_trials:
+                                # StopWatchDog: restore iterate and redo LS
+                                self.vars.get_solution().get_array()[
+                                    :
+                                ] = watchdog_iterate
+                                self.vars.get_solution().copy_host_to_device()
+                                self.update.get_array()[:] = watchdog_delta
+                                self.update.copy_host_to_device()
+                                self.px.get_array()[:] = watchdog_px
+                                self.px.copy_host_to_device()
+                                self._update_gradient(self.vars.get_solution())
+                                in_watchdog = False
+                                watchdog_shortened_iter = 0
+                                # Recompute step sizes for restored iterate
+                                alpha_x, x_index, alpha_z, z_index = (
+                                    self.optimizer.compute_max_step(
+                                        tau, self.vars, self.update
+                                    )
+                                )
+                                phi_current = self._compute_barrier_objective(self.vars)
+                                skip_first = True
+                                if comm_rank == 0:
+                                    print(
+                                        "  Watchdog stopped "
+                                        "(max trials), retrying LS"
+                                    )
+                                continue  # redo line search without watchdog
+                            else:
+                                # Force-accept the step and continue watchdog
+                                # on the next iteration.
+                                step_accepted = True
+                                if comm_rank == 0:
+                                    print(
+                                        f"  Watchdog trial "
+                                        f"{watchdog_trial_iter}/"
+                                        f"{watchdog_max_trials} "
+                                        f"(force accept)"
+                                    )
+                                break
+                    else:
+                        break  # not in watchdog, normal flow
+
+                # Filter reset heuristic
+                if filter_ls and step_accepted:
+                    if filter_rejected:
+                        count_successive_filter_rejections += 1
+                    else:
+                        count_successive_filter_rejections = 0
+                    if (
+                        count_successive_filter_rejections >= filter_reset_trigger
+                        and filter_reset_count < max_filter_resets
+                    ):
+                        inner_filter.clear()
+                        filter_reset_count += 1
+                        count_successive_filter_rejections = 0
+                        if comm_rank == 0:
+                            print(
+                                f"  Filter reset "
+                                f"({filter_reset_count}/{max_filter_resets})"
+                            )
 
                 # If filter LS failed -> feasibility restoration
                 if not step_accepted:
@@ -3968,6 +4250,7 @@ class Optimizer:
                     if restored:
                         step_accepted = True
                         line_iters = 0
+                        watchdog_shortened_iter = 0
                     else:
                         step_rejected = True
                         consecutive_rejections += 1
@@ -3979,8 +4262,12 @@ class Optimizer:
 
                 # Update gradient at the new point for the next iteration.
                 if step_accepted:
+                    # Floor tiny stored slacks to keep sigma = z/sl bounded.
+                    n_adj = self._ensure_positive_slacks(self.vars, self.barrier_param)
+                    if n_adj > 0 and comm_rank == 0:
+                        print(f"  Slack adjustment: {n_adj} variable(s)")
                     # Eq. 16: reset bound multipliers to prevent divergence.
-                    # Clamps z_i to [mu/(kappa*gap), kappa*mu/gap] with kappa=1e10.
+                    # Clamps z_i to [mu/(kappa*sl), kappa*mu/sl] with kappa=1e10.
                     self.optimizer.reset_bound_multipliers(
                         self.barrier_param,
                         1e10,
@@ -4061,6 +4348,13 @@ class Optimizer:
                 z_index_prev = z_index
 
                 consecutive_rejections = 0
+
+                # Watchdog: track shortened iterations (not in watchdog mode)
+                if filter_ls and not in_watchdog:
+                    if alpha == 1.0 or line_iters == 1:
+                        watchdog_shortened_iter = 0
+                    else:
+                        watchdog_shortened_iter += 1
 
                 # (QF mode switching is handled at the start of each
                 #  iteration in the barrier update section.)

@@ -22,13 +22,15 @@ class OptVector {
   OptVector(int n_primal, int n_constraints, std::shared_ptr<Vector<T>> x)
       : np_(n_primal), nc_(n_constraints), x_(x) {
     duals_ = std::make_shared<Vector<T>>(2 * np_, 0, x->get_memory_location());
+    slacks_ = std::make_shared<Vector<T>>(2 * np_, 0, x->get_memory_location());
   }
 
-  void zero() { x_->zero(); duals_->zero(); }
+  void zero() { x_->zero(); duals_->zero(); slacks_->zero(); }
 
   void copy(std::shared_ptr<OptVector<T>> src) {
     x_->copy(*src->x_);
     duals_->copy(*src->duals_);
+    slacks_->copy(*src->slacks_);
   }
 
   template <ExecPolicy policy>
@@ -45,12 +47,27 @@ class OptVector {
   }
 
   template <ExecPolicy policy>
+  void get_bound_slacks(T** sl, T** su) {
+    T* a = slacks_->template get_array<policy>();
+    if (sl) *sl = a;
+    if (su) *su = a + np_;
+  }
+  template <ExecPolicy policy>
+  void get_bound_slacks(const T** sl, const T** su) const {
+    const T* a = slacks_->template get_array<policy>();
+    if (sl) *sl = a;
+    if (su) *su = a + np_;
+  }
+
+  template <ExecPolicy policy>
   T* get_solution_array() { return x_->template get_array<policy>(); }
   template <ExecPolicy policy>
   const T* get_solution_array() const { return x_->template get_array<policy>(); }
 
   std::shared_ptr<Vector<T>> get_solution() { return x_; }
   const std::shared_ptr<Vector<T>> get_solution() const { return x_; }
+
+  std::shared_ptr<Vector<T>> get_slacks() { return slacks_; }
 
   int get_n_primal() const { return np_; }
   int get_n_constraints() const { return nc_; }
@@ -59,6 +76,7 @@ class OptVector {
   int np_, nc_;
   std::shared_ptr<Vector<T>> x_;
   std::shared_ptr<Vector<T>> duals_;
+  std::shared_ptr<Vector<T>> slacks_;
 };
 
 // State factory
@@ -69,6 +87,7 @@ State<T> State<T>::make(std::shared_ptr<OptVector<R>> v) {
   State<T> s{};
   s.xlam = v->template get_solution_array<policy>();
   v->template get_bound_duals<policy>(&s.zl, &s.zu);
+  v->template get_bound_slacks<policy>(&s.sl, &s.su);
   return s;
 }
 }  // namespace ipm
@@ -164,12 +183,15 @@ class InteriorPointOptimizer {
   void initialize_multipliers_and_slacks(
       T mu, const std::shared_ptr<Vector<T>>, std::shared_ptr<OptVector<T>> vars) const {
     // Project all primals into strict interior of bounds (Section 3.6),
-    // then initialize bound duals from the projected values.
+    // then initialize bound duals and slacks from the projected values.
     T* xlam = vars->template get_solution_array<policy>();
     ipm::project_primals_into_interior(info_, xlam);
     T *zl, *zu;
     vars->template get_bound_duals<policy>(&zl, &zu);
     ipm::initialize_bound_duals(mu, info_, xlam, zl, zu);
+    T *sl, *su;
+    vars->template get_bound_slacks<policy>(&sl, &su);
+    ipm::initialize_slacks(info_, xlam, sl, su);
   }
 
   // Condensed augmented system RHS (8-block to 4-block).
@@ -237,8 +259,10 @@ class InteriorPointOptimizer {
     T* xlam_n = tmp->template get_solution_array<policy>();
     T *zl_n, *zu_n;
     tmp->template get_bound_duals<policy>(&zl_n, &zu_n);
+    T *sl_n, *su_n;
+    tmp->template get_bound_slacks<policy>(&sl_n, &su_n);
     int n = info_.n_primal + info_.n_constraints;
-    ipm::apply_step(ax, az, info_, s, dxlam, dzl, dzu, xlam_n, n, zl_n, zu_n);
+    ipm::apply_step(ax, az, info_, s, dxlam, dzl, dzu, xlam_n, n, zl_n, zu_n, sl_n, su_n);
   }
 
   // Python: avg_comp, xi = optimizer.compute_complementarity(vars)
@@ -313,6 +337,7 @@ class InteriorPointOptimizer {
   }
 
   // Python: dphi = optimizer.compute_barrier_dphi(mu, vars, update, res, px, diag)
+  // KKT residual form (used by QF oracle for quality function evaluation).
   T compute_barrier_dphi(T mu,
                          const std::shared_ptr<OptVector<T>> vars,
                          const std::shared_ptr<OptVector<T>> update,
@@ -323,6 +348,23 @@ class InteriorPointOptimizer {
     T local = ipm::compute_barrier_dphi_from_kkt(
         info_, s, res->template get_array<policy>(),
         px->template get_array<policy>(), diag->template get_array<policy>());
+    T result;
+    MPI_Allreduce(&local, &result, 1, get_mpi_type<T>(), MPI_SUM, comm_);
+    return result;
+  }
+
+  // Python: dphi = optimizer.compute_barrier_dphi_direct(mu, vars, grad, px)
+  // Direct form: grad_barrier^T * dx = sum(grad_f*dx - mu*dx/sl + mu*dx/su)
+  // Direct barrier directional derivative for the filter line search.
+  T compute_barrier_dphi_direct(T mu,
+                                const std::shared_ptr<OptVector<T>> vars,
+                                const std::shared_ptr<Vector<T>> grad,
+                                const std::shared_ptr<Vector<T>> px) const {
+    ipm::State<const T> s = ipm::State<const T>::template make<policy>(vars);
+    T local = ipm::compute_barrier_dphi(
+        mu, info_, s,
+        grad->template get_array<policy>(),
+        px->template get_array<policy>());
     T result;
     MPI_Allreduce(&local, &result, 1, get_mpi_type<T>(), MPI_SUM, comm_);
     return result;
