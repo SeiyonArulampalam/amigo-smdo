@@ -134,6 +134,7 @@ x = model.create_vector()
 g = model.create_vector()
 mat = model.create_matrix()
 
+# An approach for enforced dirichlet bcs
 nodes = mesh.get_nodes_in_domain("LINE1")
 for i in nodes:
     x[f"submodel.soln.dx[{i}]"] = 5.0
@@ -142,7 +143,6 @@ model.eval_gradient(x, g)
 model.eval_hessian(x, mat)
 
 csr_mat = am.tocsr(mat)
-print(csr_mat)
 x[:] -= spsolve(csr_mat, g[:])
 
 # Extract displacement fields
