@@ -156,12 +156,21 @@ model.eval_hessian(x, mat)
 
 # Solve the equations
 print("Solving...")
-chol = am.SparseCholesky(mat)
-flag = chol.factor()
+
+csr = am.tocsr(mat)
+print(csr.shape)
+
+# chol = am.SparseCholesky(mat)
+
+# ldl = am.SparseLDL(mat)
+
+# flag = chol.factor()
 
 # Solve the equations
-x[:] = g[:]
-chol.solve(x.get_vector())
+# x[:] = g[:]
+# chol.solve(x.get_vector())
+
+x[:] = spsolve(csr, g[:])
 
 print("Plotting...")
 w = x["soln.w"]

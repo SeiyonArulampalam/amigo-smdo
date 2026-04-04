@@ -28,6 +28,7 @@ from .amigo import (
     Vector,
     OptimizationProblem,
     SparseCholesky,
+    SparseLDL,
     OrderingType,
     MemoryLocation,
 )
