@@ -618,28 +618,50 @@ class SparseLDL {
   int factor_front_matrix(const int ks, const int fully_summed,
                           const int front_size, const int front_vars[], T F[],
                           ContributionStack& stack, MatrixFactor& factor) {
-    // Select the pivots
-
     // For now, perform a pure Cholesky factorization
     // [L11   0][I  0  ][L11^{T} L21^{T}] = [F11  .sym]
     // [L21   I][0  F22][0             I]   [F21   F22]
 
+    // Cholesky implementation
+    // int num_delayed = 0;
+    // int num_pivots = fully_summed;
+    // int contrib_size = front_size - num_pivots;
+
+    // int ldf = front_size;
+    // int info;
+    // dpotrf_("L", &num_pivots, F, &ldf, &info);
+
+    // T alpha = 1.0;
+    // dtrsm_("R", "L", "T", "N", &contrib_size, &num_pivots, &alpha, F, &ldf,
+    //        &F[num_pivots], &ldf);
+
+    // alpha = -1.0;
+    // T beta = 1.0;
+    // blas_syrk<T>("L", "N", &contrib_size, &num_pivots, &alpha,
+    //        &F[num_pivots], &ldf, &beta, &F[num_pivots * (ldf + 1)], &ldf);
+
     int num_delayed = 0;
-    int num_pivots = fully_summed;
-    int contrib_size = front_size - num_pivots;
+    int num_pivots = 0;
+    int contrib_size = front_size - fully_summed;
 
-    int ldf = front_size;
-    int info;
-    dpotrf_("L", &num_pivots, F, &ldf, &info);
+    int k = 0;
+    while (k < fully_summed) {
+      T diag = std::abs(F[k * (front_size + 1)]);
 
-    double alpha = 1.0;
-    dtrsm_("R", "L", "T", "N", &contrib_size, &num_pivots, &alpha, F, &ldf,
-           &F[num_pivots], &ldf);
+      // Find the row with the max value
+      int n = front_size - k - 1;
+      int inc = 1;
+      int imax = k + 1 + blas_imax<T>(&n, F[k * (front_size + 1) + 1], &inc);
 
-    alpha = -1.0;
-    double beta = 1.0;
-    blas_syrk<T>("L", "N", &contrib_size, &num_pivots, &alpha, &F[num_pivots],
-                 &ldf, &beta, &F[num_pivots * (ldf + 1)], &ldf);
+      // Maximum value in the column
+      T colmax = std::abs(F[k * front_size + imax]);
+
+      // This pivot is not acceptable
+      if (colmax * ustab >= diag) {
+      }
+
+      // Do stuff
+    }
 
     // Push this onto the stack
     stack.push(num_pivots, num_delayed, front_size, front_vars, F);

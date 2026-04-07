@@ -4,6 +4,10 @@
 #include <complex>
 
 extern "C" {
+
+// Find the argmax
+extern int idamax_(const int* n, const double* a, const int* inc);
+
 // Compute C := alpha*A*A**T + beta*C or C := alpha*A**T*A + beta*C
 extern void dsyrk_(const char* uplo, const char* trans, const int* n,
                    const int* k, const double* alpha, const double* a,
@@ -17,9 +21,10 @@ extern void dgemm_(const char* ta, const char* tb, const int* m, const int* n,
                    const double* beta, double* c, const int* ldc);
 
 // Compute y = alpha*op(A)*x + beta*y
-void dgemv_(const char* trans, const int* m, const int* n, const double* alpha,
-            const double* A, const int* lda, const double* x, const int* incx,
-            const double* beta, double* y, const int* incy);
+extern void dgemv_(const char* trans, const int* m, const int* n,
+                   const double* alpha, const double* A, const int* lda,
+                   const double* x, const int* incx, const double* beta,
+                   double* y, const int* incy);
 
 // Solve A*x = b or A^T*x = b where A is in packed format
 extern void dtpsv_(const char* uplo, const char* transa, const char* diag,
@@ -32,6 +37,12 @@ extern void dtptrs_(const char* uplo, const char* transa, const char* diag,
 
 // Factorization of packed storage matrices
 extern void dpptrf_(const char* c, const int* n, double* ap, int* info);
+
+// Find the argmax
+extern int izamax_(const int* n, const std::complex<double>* a, const int* inc);
+
+extern void dsytrf_(const char* uplo, const int* n, double* A, const int* lda,
+                    int* ipiv, double* work, const int* lwork, int* info);
 
 // Compute C := alpha*A*A**T + beta*C or C := alpha*A**T*A + beta*C
 extern void zsyrk_(const char* uplo, const char* trans, const int* n,
@@ -49,11 +60,12 @@ extern void zgemm_(const char* ta, const char* tb, const int* m, const int* n,
                    const int* ldc);
 
 // Compute y = alpha*op(A)*x + beta*y
-void zgemv_(const char* trans, const int* m, const int* n,
-            const std::complex<double>* alpha, const std::complex<double>* A,
-            const int* lda, const double* x, const int* incx,
-            const std::complex<double>* beta, std::complex<double>* y,
-            const int* incy);
+extern void zgemv_(const char* trans, const int* m, const int* n,
+                   const std::complex<double>* alpha,
+                   const std::complex<double>* A, const int* lda,
+                   const double* x, const int* incx,
+                   const std::complex<double>* beta, std::complex<double>* y,
+                   const int* incy);
 
 // Solve A*x = b or A^T*x = b where A is in packed format
 extern void ztpsv_(const char* uplo, const char* transa, const char* diag,
@@ -72,6 +84,20 @@ extern void zpptrf_(const char* c, const int* n, std::complex<double>* ap,
 }
 
 namespace amigo {
+
+template <typenameT>
+int blas_imax(const int* n, const T* a, const int* inc) {
+  if constexpr (std::is_same<T, double>::value) {
+    return idmax_(n, a, inc);
+  } else if constexpr (std::is_same<T, std::complex<double>>::value) {
+    return izmax_(n, a, inc);
+  } else {
+    static_assert(
+        std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
+        "blas_imax only supports double and std::complex<double>");
+    return 0;
+  }
+}
 
 template <typename T>
 void blas_syrk(const char* uplo, const char* trans, const int* n, const int* k,
