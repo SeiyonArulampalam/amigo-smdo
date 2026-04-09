@@ -2,11 +2,20 @@
 # Build amigo in debug mode and install to the active Python environment.
 # Run once (or after C++ source changes). Subsequent runs are incremental.
 #
-# Usage: ./scripts/build_debug.sh
+# Usage: ./build_debug.sh
+#
+# Cross-platform alternative (macOS / Linux / Windows):
+#   Debug:    pip install -e . -Ccmake.build-type=Debug -Ccmake.build-dir=_build_debug
+#   Release:  pip install -e .
+#
+# Note: the pip approach overwrites whichever build is currently installed,
+# so only one build type is active at a time. This script keeps a separate
+# _build_debug directory and copies the result into the active environment,
+# which is macOS-only (requires dsymutil).
 
 set -euo pipefail
 
-AMIGO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AMIGO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}"/..)" && pwd)"
 BUILD_DIR="$AMIGO_DIR/_build_debug"
 
 # Resolve the installed .so path from the active Python environment
