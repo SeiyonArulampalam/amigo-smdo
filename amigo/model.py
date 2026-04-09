@@ -455,6 +455,11 @@ class Model:
         if name in self.comp:
             raise ValueError(f"Cannot add two components with the same name")
 
+        if not callable(getattr(comp_obj, "compute", None)):
+            raise TypeError(
+                f"add_component '{name}': comp_obj must have a callable 'compute' method"
+            )
+
         vs = comp_obj.get_var_shapes()
         var_shapes = self._get_group_shapes(size, vs)
         ds = comp_obj.get_data_shapes()
