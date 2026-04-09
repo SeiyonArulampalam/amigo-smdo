@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-AMIGO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AMIGO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$AMIGO_DIR/_build_debug"
 
 # Resolve the installed .so path from the active Python environment
