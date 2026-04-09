@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout amigo
@@ -16,10 +20,21 @@ jobs:
       - name: Checkout a2d
         run: git clone --depth 1 https://github.com/smdogroup/a2d.git ../a2d
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake libopenmpi-dev libopenblas-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake open-mpi openblas
+
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        uses: mpi4py/setup-mpi@v1
+        with:
+          mpi: msmpi
 
       - name: Set up Python
         uses: actions/setup-python@v5
