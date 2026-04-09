@@ -8,6 +8,14 @@ extern "C" {
 // Find the argmax
 extern int idamax_(const int* n, const double* a, const int* inc);
 
+// Copy values y = x
+extern void dcopy_(const int* n, const double* x, const int* incx, double* y,
+                   const int* incy);
+
+// Swap values
+extern void dswap_(const int* n, double* x, const int* incx, double* y,
+                   const int* incy);
+
 // Compute C := alpha*A*A**T + beta*C or C := alpha*A**T*A + beta*C
 extern void dsyrk_(const char* uplo, const char* trans, const int* n,
                    const int* k, const double* alpha, const double* a,
@@ -35,14 +43,38 @@ extern void dtptrs_(const char* uplo, const char* transa, const char* diag,
                     const int* n, const int* nrhs, const double* a, double* b,
                     const int* ldb, int* info);
 
-// Factorization of packed storage matrices
+// Solve a system of equations A * X = B  or  A**T * X = B,
+extern void dtrtrs_(const char* uplo, const char* trans, const char* diag,
+                    const int* n, const int* nrhs, const double* A,
+                    const int* lda, double* B, const int* ldb, int* info);
+
+// Solve the equations op( A )*X = alpha*B or X*op( A ) = alpha*B,
+extern void dtrsm_(const char* side, const char* uplo, const char* transa,
+                   const char* diag, const int* m, const int* n,
+                   const double* alpha, const double* A, const int* lda,
+                   double* B, const int* ldb);
+
+// Factorization of positive definite matrix in packed storage
 extern void dpptrf_(const char* c, const int* n, double* ap, int* info);
+
+// Factorization of a positive definite matrix in general storage
+extern void dpotrf_(const char* uplo, const int* n, double* a, const int* lda,
+                    int* info);
+
+// Symmetric LDL factorization
+extern void dsytrf_(const char* uplo, const int* n, double* A, const int* lda,
+                    int* ipiv, double* work, const int* lwork, int* info);
 
 // Find the argmax
 extern int izamax_(const int* n, const std::complex<double>* a, const int* inc);
 
-extern void dsytrf_(const char* uplo, const int* n, double* A, const int* lda,
-                    int* ipiv, double* work, const int* lwork, int* info);
+// Copy values y = x
+extern void zcopy_(const int* n, const std::complex<double>* x, const int* incx,
+                   std::complex<double>* y, const int* incy);
+
+// Swap values
+extern void zswap_(const int* n, std::complex<double>* x, const int* incx,
+                   std::complex<double>* y, const int* incy);
 
 // Compute C := alpha*A*A**T + beta*C or C := alpha*A**T*A + beta*C
 extern void zsyrk_(const char* uplo, const char* trans, const int* n,
@@ -78,24 +110,66 @@ extern void ztptrs_(const char* uplo, const char* transa, const char* diag,
                     const std::complex<double>* a, std::complex<double>* b,
                     const int* ldb, int* info);
 
-// Factorization of packed storage matrices
+// Solve the equations op( A )*X = alpha*B or X*op( A ) = alpha*B,
+extern void ztrsm_(const char* side, const char* uplo, const char* transa,
+                   const char* diag, const int* m, const int* n,
+                   const std::complex<double>* alpha,
+                   const std::complex<double>* A, const int* lda,
+                   std::complex<double>* B, const int* ldb);
+
+// Factorization of positive definite matrix in packed storage
 extern void zpptrf_(const char* c, const int* n, std::complex<double>* ap,
                     int* info);
+
+// Factorization of a positive definite matrix in general storage
+extern void zpotrf_(const char* uplo, const int* n, double* a, const int* lda,
+                    int* info);
+
+// Symmetric LDL factorization
+extern void zsytrf_(const char* uplo, const int* n, double* A, const int* lda,
+                    int* ipiv, double* work, const int* lwork, int* info);
 }
 
 namespace amigo {
 
-template <typenameT>
+template <typename T>
 int blas_imax(const int* n, const T* a, const int* inc) {
   if constexpr (std::is_same<T, double>::value) {
-    return idmax_(n, a, inc);
+    return idamax_(n, a, inc);
   } else if constexpr (std::is_same<T, std::complex<double>>::value) {
-    return izmax_(n, a, inc);
+    return izamax_(n, a, inc);
   } else {
     static_assert(
         std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
         "blas_imax only supports double and std::complex<double>");
     return 0;
+  }
+}
+
+template <typename T>
+void blas_copy(const int* n, const T* x, const int* incx, T* y,
+               const int* incy) {
+  if constexpr (std::is_same<T, double>::value) {
+    return dcopy_(n, x, incx, y, incy);
+  } else if constexpr (std::is_same<T, std::complex<double>>::value) {
+    return zcopy_(n, x, incx, y, incy);
+  } else {
+    static_assert(
+        std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
+        "blas_copy only supports double and std::complex<double>");
+  }
+}
+
+template <typename T>
+void blas_swap(const int* n, T* x, const int* incx, T* y, const int* incy) {
+  if constexpr (std::is_same<T, double>::value) {
+    return dswap_(n, x, incx, y, incy);
+  } else if constexpr (std::is_same<T, std::complex<double>>::value) {
+    return zswap_(n, x, incx, y, incy);
+  } else {
+    static_assert(
+        std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
+        "blas_swap only supports double and std::complex<double>");
   }
 }
 
@@ -175,6 +249,21 @@ void blas_tptrs(const char* uplo, const char* transa, const char* diag,
 }
 
 template <typename T>
+void blas_trsm(const char* side, const char* uplo, const char* transa,
+               const char* diag, const int* m, const int* n, const T* alpha,
+               const T* A, const int* lda, T* B, const int* ldb) {
+  if constexpr (std::is_same<T, double>::value) {
+    dtrsm_(side, uplo, transa, diag, m, n, alpha, A, lda, B, ldb);
+  } else if constexpr (std::is_same<T, std::complex<double>>::value) {
+    ztrsm_(side, uplo, transa, diag, m, n, alpha, A, lda, B, ldb);
+  } else {
+    static_assert(
+        std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
+        "blas_trsm only supports double and std::complex<double>");
+  }
+}
+
+template <typename T>
 void lapack_pptrf(const char* c, const int* n, T* ap, int* info) {
   if constexpr (std::is_same<T, double>::value) {
     dpptrf_(c, n, ap, info);
@@ -184,6 +273,34 @@ void lapack_pptrf(const char* c, const int* n, T* ap, int* info) {
     static_assert(
         std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
         "lapack_pptrf only supports double and std::complex<double>");
+  }
+}
+
+template <typename T>
+void lapack_sytrf(const char* uplo, const int* n, T* a, const int* lda,
+                  int* ipiv, T* work, int* lwork, int* info) {
+  if constexpr (std::is_same<T, double>::value) {
+    dsytrf_(uplo, n, a, lda, ipiv, work, lwork, info);
+  } else if constexpr (std::is_same<T, std::complex<double>>::value) {
+    zsytrf_(uplo, n, a, lda, ipiv, work, lwork, info);
+  } else {
+    static_assert(
+        std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
+        "lapack_sytrf only supports double and std::complex<double>");
+  }
+}
+
+template <typename T>
+void lapack_potrf(const char* uplo, const int* n, T* a, const int* lda,
+                  int* info) {
+  if constexpr (std::is_same<T, double>::value) {
+    dpotrf_(uplo, n, a, lda, info);
+  } else if constexpr (std::is_same<T, std::complex<double>>::value) {
+    zpotrf_(uplo, n, a, lda, info);
+  } else {
+    static_assert(
+        std::is_same_v<T, double> || std::is_same_v<T, std::complex<double>>,
+        "lapack_sytrf only supports double and std::complex<double>");
   }
 }
 
