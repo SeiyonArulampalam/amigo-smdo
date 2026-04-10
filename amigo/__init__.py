@@ -33,6 +33,7 @@ from .amigo import (
 )
 from .component import Component
 from .model import Model
+from .diagnostics import Diagnostics
 from .optimizer import *
 from .utils import *
 from .unary_operations import *
