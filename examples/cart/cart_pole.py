@@ -389,7 +389,7 @@ for opt_iter in range(4):
         upper=upper,
         comm=comm,
         distribute=distribute,
-        solver=solver,
+        solver="amigo",
     )
 
     # Optimize

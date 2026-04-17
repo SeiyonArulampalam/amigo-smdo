@@ -3,20 +3,60 @@ import numpy as np
 
 
 class LinearSolver(ABC):
+    """
+    The linear solver class is designed so that the KKT matrix is stored here,
+    and the optimizer class does not have direct access to it. The interface defines
+    the methods needed to evaluate, factor and solve the KKT system. Some solvers
+    can compute the inertia of the KKT matrix. Those solvers should also implement
+    get_inertia().
+    """
+
     @abstractmethod
-    def factor(self, alpha, x, diag):
+    def eval_hessian(self, alpha, x):
+        """
+        Evaluate and save the Hessian at the given design point.
+
+        This saves the Hessian matrix, but does not perform the factorization step.
+
+        Args:
+            alpha (float) : Scaling factor for the objective function
+            x (am.Vector) : Vector of the design variables
+        """
         pass
 
     @abstractmethod
-    def solve(self, bx, px):
+    def factor(self, diag):
+        """
+        Factor the Hessian plus the diagonal matrix whose entries are in the diag vector.
+
+        The factored matrix is K = (H + D)
+
+        Args:
+            diag (am.Vector) : Vector consisting of the diagonal elements
+
+        Return:
+            flag (int) : Index indicating success if flag = 0
+        """
         pass
 
-    supports_inertia = False
+    @abstractmethod
+    def solve(self, b, p):
+        """
+        Solve the system of equations K * p = b
+
+        Args:
+            b (am.Vector) : The right hand side vector
+            p (am.Vector) : The solution vector
+        """
+        pass
+
+    @abstractmethod
+    def supports_inertia(self):
+        """Does this class support inertia computation from a matrix factorization"""
+        return False
 
     def get_inertia(self):
-        raise NotImplementedError(
-            "This solver does not support inertia queries"
-        )  # TODO scipy need inertia
+        raise NotImplementedError("This solver does not support inertia queries")
 
     def assemble_hessian(self, alpha, x):
         """Assemble Lagrangian Hessian and return its diagonal.
