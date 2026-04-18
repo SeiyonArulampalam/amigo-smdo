@@ -75,7 +75,7 @@ class TrajectoryComponent(am.Component):
         self._input_names = [input["name"] for input in aux_inputs]
         self.num_time_steps = num_time_steps
         self._state_size = state_size
-        self._input_list = aux_inputs
+        self._aux_inputs = aux_inputs
 
         self.add_input("tf", label="final time")
         self.add_input("q1", shape=state_size)
@@ -126,22 +126,65 @@ class TrajectoryComponent(am.Component):
 
 
 class TrajectoryModel:
+    """
+    Model helper to streamline continuous-time dynamics and trajectory computation.
+
+    Contains a `TrajectorySource` and `TrajectoryComponent` with automatic linking.
+
+    The `TrajectorySource` is labeled as `source` in this model. The `TrajectoryComponent`
+    is labeled as `kernel`.
+
+    Example Usage
+    -------
+    Consider a problem to minimize the final time.
+    Assume `dynamics` has been previously defined and has an auxiliary input `alpha`.
+    For brevity: setting lower/upper bounds, boundary conditions, etc. are not included.
+    ```
+    traj = am.TrajectoryModel(dynamics)
+
+    model = am.Model("example")
+    model.add_model("traj", traj.create_model())
+
+    # Link to a BSpline that controls alpha
+    model.link("traj.source.alpha", "bspline.interp_values.alpha")
+
+    # Link final time from objective
+    model.link("obj.tf[0]", f"traj.kernel.tf[:]")
+    ```
+    """
 
     def __init__(
-        self, num_time_steps: int, state_size: int, aux_inputs: list[dict] = []
+        self,
+        dynamics: TrajectoryComponent,
     ):
-        self.num_time_steps = num_time_steps
-        self.state_size = state_size
-        self._input_list = aux_inputs
-        self._input_names = [input["name"] for input in aux_inputs]
+        """
+        Initialize a TrajectoryModel helper.
+
+        Args:
+            dynamics (TrajectoryComponent) : implements the governing dynamical equations
+
+        Note:
+        `TrajectorySource` is automatically created based on the input parameters to the
+        trajectory component.
+        """
+        self._dynamics = dynamics
+        self.num_time_steps = dynamics.num_time_steps
+        self.state_size = dynamics._state_size
+        self._input_list = dynamics._aux_inputs
+        self._input_names = [input["name"] for input in self._input_list]
 
         return
 
     def create_model(
         self,
-        dynamics: TrajectoryComponent,
         module_name: str | None = None,
     ):
+        """
+        Create and link the Amigo model
+
+        Args:
+            module_name (str) : specify name for the module (optional)
+        """
         model = am.Model(module_name)
 
         model.add_component(
@@ -149,7 +192,7 @@ class TrajectoryModel:
             self.num_time_steps + 1,
             TrajectorySource(self.state_size, self._input_list),
         )
-        model.add_component("kernel", self.num_time_steps, dynamics)
+        model.add_component("kernel", self.num_time_steps, self._dynamics)
 
         model.link(f"source.q[:-1,:]", f"kernel.q1")
         model.link(f"source.q[1:,:]", f"kernel.q2")
@@ -163,87 +206,12 @@ class TrajectoryModel:
     def link_boundary_conditions(
         self, model: am.Model, traj_model_name: str, ic: str = None, fc: str = None
     ):
-        if ic:
-            model.link(f"{traj_model_name}.source.q[0,:]", f"{ic}.q[0,:]")
-        if fc:
-            model.link(
-                f"{traj_model_name}.source.q[{self.num_time_steps}, :]", f"{fc}.q[0,:]"
-            )
-
-
-class TrajModel(am.Model):
-    """
-    Model to streamline continuous-time dynamics and trajectory computation.
-
-    Contains a `TrajectorySource` and `TrajectoryComponent` with automatic linking.
-
-    The `TrajectorySource` is labeled as `source` in this model. The `TrajectoryComponent`
-    is labeled as `kernel`.
-
-    Example Usage
-    -------
-    Consider a problem to minimize the final time.
-    Assume `dynamics` has been previously defined and has an auxiliary input `alpha`.
-    For brevity: setting lower/upper bounds, boundary conditions, etc. are not included.
-    ```
-    traj = am.TrajModel(dynamics)
-
-    model = am.Model("example")
-    model.add_model("traj", traj)
-
-    # Link to a BSpline that controls alpha
-    model.link("traj.source.alpha", "bspline.interp_values.alpha")
-
-    # Link final time from objective
-    model.link("obj.tf[0]", f"traj.kernel.tf[:]")
-    ```
-    """
-
-    def __init__(self, dynamics: TrajectoryComponent, module_name: str | None = None):
-        """
-        Initialize a TrajectoryModel.
-
-        Args:
-            dynamics (TrajectoryComponent) : implements the governing dynamical equations
-            module_name (str) : specify name for the module (optional)
-
-        Note:
-        `TrajectorySource` is automatically created based on the input parameters to the
-        trajectory component.
-        """
-        super().__init__(module_name)
-
-        self._num_time_steps = dynamics.num_time_steps
-        self._state_size = dynamics._state_size
-        input_list = dynamics._input_list
-        input_names = dynamics._input_names
-
-        self.add_component(
-            "source",
-            self._num_time_steps + 1,
-            TrajectorySource(self._state_size, input_list),
-        )
-
-        self.add_component("kernel", self._num_time_steps, dynamics)
-
-        self.link(f"source.q[:-1,:]", f"kernel.q1")
-        self.link(f"source.q[1:,:]", f"kernel.q2")
-
-        for name in input_names:
-            self.link(f"source.{name}[:-1]", f"kernel.{name}1")
-            self.link(f"source.{name}[1:]", f"kernel.{name}2")
-
-        return
-
-    def link_boundary_conditions(
-        self, model: am.Model, traj_name: str, ic: str = None, fc: str = None
-    ):
         """
         Helper utility to set boundary conditions.
 
         Args:
-            model (am.Model) : parent model that `TrajModel` belongs to
-            traj_name (str) : name of the `TrajModel` in `model`
+            model (am.Model) : parent model that `TrajectoryModel` belongs to
+            traj_name (str) : name of the `TrajectoryModel` in `model`
             ic (str) : name of the initial condition
             fc (str) : name of the final condition
 
@@ -254,8 +222,8 @@ class TrajModel(am.Model):
         ```
         """
         if ic:
-            model.link(f"{traj_name}.source.q[0,:]", f"{ic}.q[0,:]")
+            model.link(f"{traj_model_name}.source.q[0,:]", f"{ic}.q[0,:]")
         if fc:
             model.link(
-                f"{traj_name}.source.q[{self._num_time_steps}, :]", f"{fc}.q[0,:]"
+                f"{traj_model_name}.source.q[{self.num_time_steps}, :]", f"{fc}.q[0,:]"
             )

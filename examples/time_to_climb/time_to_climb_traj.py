@@ -210,8 +210,8 @@ ac = AircraftDynamics(scaling)
 obj = Objective()
 ic = InitialConditions(scaling)
 fc = FinalConditions(scaling)
-# TrajModel creates a submodel that links the dynamics and an automatic trajectory source
-traj = am.TrajModel(ac)
+# TrajectoryModel creates a submodel that links the dynamics and an automatic trajectory source
+traj = am.TrajectoryModel(ac)
 
 # Number of bspline control points
 nctrl = 10
@@ -234,7 +234,7 @@ model.add_component("obj", 1, obj)
 model.add_component("ic", 1, ic)
 model.add_component("fc", 1, fc)
 # Instead of adding the dynamics and trapezoid integration separately, add the submodel
-model.add_model("traj", traj)
+model.add_model("traj", traj.create_model())
 
 # Link the alpha values - ac.alpha to bspline output
 model.link("traj.source.alpha", "bspline.interp_values.alpha")
