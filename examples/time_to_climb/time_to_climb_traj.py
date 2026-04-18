@@ -43,7 +43,7 @@ class AircraftDynamics(am.TrajectoryComponent):
 
         return
 
-    def _dynamics(self, q, alpha):
+    def dynamics(self, q, alpha):
         # Get constants
         S = self.constants["S"]
         CL_alpha = self.constants["CL_alpha"]
@@ -99,9 +99,6 @@ class AircraftDynamics(am.TrajectoryComponent):
         ]
 
         return qdot
-
-    def compute(self):
-        super().compute()
 
 
 class Objective(am.Component):

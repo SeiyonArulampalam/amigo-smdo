@@ -22,7 +22,7 @@ class TrajectoryComponent(am.Component):
     """
     Component wrapper designed for trajectory computations using the trapezoid rule.
 
-    The user defines the `_dynamics` method to implement the dynamics governing equations.
+    The user defines the `dynamics` method to implement the dynamics governing equations.
     The `compute` method automatically calls the dynamics based on any specified inputs
     (the state `q` is always assumed).
 
@@ -44,14 +44,11 @@ class TrajectoryComponent(am.Component):
             self.add_constant("g", value=9.81)
             return
 
-        def _dynamics(self, q, alpha, throttle):
+        def dynamics(self, q, alpha, throttle):
             g = self.constants["g"]
             mass = q[0] * self.scaling["mass"]
             ...
             return qdot
-
-        def compute(self):
-            super().compute()
     ```
     """
 
@@ -98,7 +95,7 @@ class TrajectoryComponent(am.Component):
         return
 
     @abstractmethod
-    def _dynamics(self, q, *args):
+    def dynamics(self, q, *args):
         """
         User must implement the dynamics and return qdot.
 
@@ -111,7 +108,7 @@ class TrajectoryComponent(am.Component):
 
     def compute(self):
         """
-        User must define their own `compute` method that calls `super().compute()`
+        The user-defined dynamics are used to compute constraints.
         """
         dt = self.inputs["tf"] / self.num_time_steps
         input1_vars = [self.inputs[f"{name}1"] for name in self._input_names]
@@ -119,8 +116,8 @@ class TrajectoryComponent(am.Component):
 
         q1, q2 = self.inputs["q1"], self.inputs["q2"]
 
-        f1 = self._dynamics(q1, *input1_vars)
-        f2 = self._dynamics(q2, *input2_vars)
+        f1 = self.dynamics(q1, *input1_vars)
+        f2 = self.dynamics(q2, *input2_vars)
         self.constraints["res"] = [
             q2[i] - q1[i] - 0.5 * dt * (f1[i] + f2[i]) for i in range(self._state_size)
         ]
