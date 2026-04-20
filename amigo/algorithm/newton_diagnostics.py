@@ -26,7 +26,10 @@ class NewtonDiagnostics:
         self.optimizer.apply_step_update(1.0, 1.0, self.vars, self.update, self.temp)
         self._update_gradient(self.temp.get_solution())
         trial_res = self.optimizer.compute_residual(
-            self.barrier_param, self.temp, self.grad, self.res,
+            self.barrier_param,
+            self.temp,
+            self.grad,
+            self.res,
         )
         d_sq_t, p_sq_t, c_sq_t = self.optimizer.compute_kkt_error(self.temp, self.grad)
         # Restore gradient at current point
@@ -87,7 +90,7 @@ class NewtonDiagnostics:
             dev_u = np.abs(comp_u - mu)
             all_dev = np.concatenate([dev_l, dev_u])
             all_comp = np.concatenate([comp_l, comp_u])
-            top5 = np.argsort(all_dev)[-min(5, len(all_dev)):][::-1]
+            top5 = np.argsort(all_dev)[-min(5, len(all_dev)) :][::-1]
             print(f"  bound comp top-5 |z*gap-mu|: ", end="")
             for rank, ci in enumerate(top5):
                 side = "L" if ci < n_var else "U"
@@ -101,14 +104,17 @@ class NewtonDiagnostics:
 
     def _run_check_update_diagnostics(self, comm_rank):
         """Verify the Newton step and (optionally) the linear-solve accuracy."""
-        hess = (
-            self.mpi_problem if self.distribute else self.problem
-        ).create_matrix()
+        hess = (self.mpi_problem if self.distribute else self.problem).create_matrix()
         self.optimizer.check_update(
-            self.barrier_param, self.grad, self.vars, self.update, hess,
+            self.barrier_param,
+            self.grad,
+            self.vars,
+            self.update,
+            hess,
         )
         if comm_rank == 0 and hasattr(self.solver, "hess"):
             from scipy.sparse import csr_matrix as _sp_csr
+
             self.res.copy_device_to_host()
             self.px.copy_device_to_host()
             _rhs = self.res.get_array().copy()

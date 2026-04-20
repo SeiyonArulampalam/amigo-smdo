@@ -12,10 +12,24 @@ import numpy as np
 class IterationLogger:
     """Iteration table and per-iteration data assembly."""
 
-    def _build_iter_data(self, i, elapsed_time, res_norm, line_iters,
-                          alpha_x_prev, alpha_z_prev, x_index_prev, z_index_prev,
-                          inertia_corrector, theta_res, eta_res,
-                          filter_ls, outer_filter, options, mult_ind):
+    def _build_iter_data(
+        self,
+        i,
+        elapsed_time,
+        res_norm,
+        line_iters,
+        alpha_x_prev,
+        alpha_z_prev,
+        x_index_prev,
+        z_index_prev,
+        inertia_corrector,
+        theta_res,
+        eta_res,
+        filter_ls,
+        outer_filter,
+        options,
+        mult_ind,
+    ):
         """Assemble the dict of per-iteration diagnostics for logging/history."""
         iter_data = {
             "iteration": i,
@@ -29,16 +43,17 @@ class IterationLogger:
             "z_index": z_index_prev,
         }
         if inertia_corrector:
-            iter_data.update({
-                "theta": theta_res,
-                "eta": eta_res,
-                "inertia_delta": inertia_corrector.last_delta_w,
-            })
+            iter_data.update(
+                {
+                    "theta": theta_res,
+                    "eta": eta_res,
+                    "inertia_delta": inertia_corrector.last_delta_w,
+                }
+            )
         if filter_ls:
             iter_data["filter_size"] = len(outer_filter)
 
-        if (options["barrier_strategy"] == "heuristic"
-                and options["verbose_barrier"]):
+        if options["barrier_strategy"] == "heuristic" and options["verbose_barrier"]:
             complementarity, xi = self.optimizer.compute_complementarity(self.vars)
             iter_data["xi"] = xi
             iter_data["complementarity"] = complementarity

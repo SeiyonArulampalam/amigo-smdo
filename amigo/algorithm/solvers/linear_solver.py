@@ -50,10 +50,20 @@ class LinearSolver(ABC):
                 diag_idx[i] = start  # fallback (should not happen)
         return diag_idx
 
-    def iterative_refinement(self, mu, mult_ind, rhs_saved,
-                              vars_, grad, lbx, ubx,
-                              px, res, corr,
-                              max_steps=10):
+    def iterative_refinement(
+        self,
+        mu,
+        mult_ind,
+        rhs_saved,
+        vars_,
+        grad,
+        lbx,
+        ubx,
+        px,
+        res,
+        corr,
+        max_steps=10,
+    ):
         """Iterative refinement on the full 8-block unreduced Newton system.
 
         Computes residuals on the full system (x, s, y_c, y_d, z_L, z_U,

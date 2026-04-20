@@ -23,7 +23,6 @@ from .inertia_correction import InertiaCorrector
 class ProblemSetup:
     """Initialization and loop-config helpers."""
 
-
     def _partition_problem(self):
         if self.distribute:
             self.mpi_problem = self.problem.partition_from_root()

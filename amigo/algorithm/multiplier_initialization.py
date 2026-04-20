@@ -70,7 +70,9 @@ class MultiplierInitialization:
         self.optimizer.compute_residual(mu, self.vars, self.grad, self.res)
         self.optimizer.compute_diagonal(self.vars, self.diag)
         self.solver.factor(
-            self._obj_scale, x, self.diag,
+            self._obj_scale,
+            x,
+            self.diag,
             post_hessian=self._hessian_scaling_fn,
         )
         self.solver.solve(self.res, self.px)

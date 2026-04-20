@@ -172,7 +172,8 @@ class Optimizer(
                 gamma_phi=options["filter_gamma_phi"],
                 gamma_theta=options["filter_gamma_theta"],
             )
-            if filter_ls else None
+            if filter_ls
+            else None
         )
         if filter_ls:
             self._filter_theta_0 = None
@@ -205,11 +206,21 @@ class Optimizer(
             # Step B: Log
             elapsed_time = time.perf_counter() - start_time
             iter_data = self._build_iter_data(
-                i, elapsed_time, res_norm, state.line_iters,
-                state.alpha_x_prev, state.alpha_z_prev,
-                state.x_index_prev, state.z_index_prev,
-                inertia_corrector, theta_res, eta_res,
-                filter_ls, outer_filter, options, mult_ind,
+                i,
+                elapsed_time,
+                res_norm,
+                state.line_iters,
+                state.alpha_x_prev,
+                state.alpha_z_prev,
+                state.x_index_prev,
+                state.z_index_prev,
+                inertia_corrector,
+                theta_res,
+                eta_res,
+                filter_ls,
+                outer_filter,
+                options,
+                mult_ind,
             )
             if comm_rank == 0:
                 self.write_log(i, iter_data)
@@ -222,8 +233,13 @@ class Optimizer(
             # Step C: Convergence
             status, _, state.acceptable_counter, state.precision_floor_count = (
                 self._check_convergence(
-                    i, options, mult_ind, res_norm, state.prev_res_norm,
-                    state.acceptable_counter, state.precision_floor_count,
+                    i,
+                    options,
+                    mult_ind,
+                    res_norm,
+                    state.prev_res_norm,
+                    state.acceptable_counter,
+                    state.precision_floor_count,
                     comm_rank,
                 )
             )
@@ -249,8 +265,11 @@ class Optimizer(
             # Zero-step recovery (non-inertia path only)
             if not inertia_corrector:
                 state.zero_step_count = self._handle_zero_step_recovery(
-                    i, state.alpha_x_prev, state.alpha_z_prev,
-                    state.zero_step_count, comm_rank,
+                    i,
+                    state.alpha_x_prev,
+                    state.alpha_z_prev,
+                    state.zero_step_count,
+                    comm_rank,
                 )
 
             # Barrier diagonal Sigma = Z/S
@@ -262,24 +281,47 @@ class Optimizer(
 
             if quality_func:
                 state.qf_mu_min, state.qf_mu_max = self._initialize_qf_bounds(
-                    options, tol, compl_inf_tol,
-                    state.qf_mu_min, state.qf_mu_max, qf_state,
+                    options,
+                    tol,
+                    compl_inf_tol,
+                    state.qf_mu_min,
+                    state.qf_mu_max,
+                    qf_state,
                 )
                 state.qf_free_mode, state.qf_monotone_mu, factorize_ok = (
                     self._step_quality_function(
-                        options, mult_ind, inertia_corrector, diag_base, x,
-                        zero_hessian_indices, zero_hessian_eps, comm_rank,
-                        state.qf_free_mode, state.qf_monotone_mu,
-                        state.qf_mu_min, state.qf_mu_max,
-                        tol, compl_inf_tol,
+                        options,
+                        mult_ind,
+                        inertia_corrector,
+                        diag_base,
+                        x,
+                        zero_hessian_indices,
+                        zero_hessian_eps,
+                        comm_rank,
+                        state.qf_free_mode,
+                        state.qf_monotone_mu,
+                        state.qf_mu_min,
+                        state.qf_mu_max,
+                        tol,
+                        compl_inf_tol,
                     )
                 )
             else:
                 state.filter_monotone_mu, factorize_ok = self._step_classical(
-                    i, options, mult_ind, inertia_corrector, diag_base, x,
-                    zero_hessian_indices, zero_hessian_eps, comm_rank,
-                    res_norm, state.filter_monotone_mode, state.filter_monotone_mu,
-                    tol, compl_inf_tol,
+                    i,
+                    options,
+                    mult_ind,
+                    inertia_corrector,
+                    diag_base,
+                    x,
+                    zero_hessian_indices,
+                    zero_hessian_eps,
+                    comm_rank,
+                    res_norm,
+                    state.filter_monotone_mode,
+                    state.filter_monotone_mu,
+                    tol,
+                    compl_inf_tol,
                 )
 
             # Reset line search state when mu changed
@@ -307,8 +349,11 @@ class Optimizer(
                 state.alpha_x_prev = state.alpha_z_prev = 0.0
                 state.x_index_prev = state.z_index_prev = -1
                 state.consecutive_rejections = self._maybe_increase_barrier(
-                    state.consecutive_rejections, max_rejections, barrier_inc,
-                    initial_barrier, comm_rank,
+                    state.consecutive_rejections,
+                    max_rejections,
+                    barrier_inc,
+                    initial_barrier,
+                    comm_rank,
                 )
                 continue
 
@@ -325,7 +370,8 @@ class Optimizer(
             # Compute maximum step sizes from fraction-to-boundary
             tau = (
                 self._compute_adaptive_tau(self.barrier_param, tau_min)
-                if use_adaptive_tau else base_tau
+                if use_adaptive_tau
+                else base_tau
             )
             alpha_x, x_index, alpha_z, z_index = self.optimizer.compute_max_step(
                 tau, self.vars, self.update
@@ -337,8 +383,15 @@ class Optimizer(
             if filter_ls:
                 alpha, state.line_iters, step_accepted, filter_rejected = (
                     self._filter_line_search_with_watchdog(
-                        alpha_x, alpha_z, inner_filter, options, comm_rank,
-                        tau, soc_mult_ind, watchdog, factorize_ok,
+                        alpha_x,
+                        alpha_z,
+                        inner_filter,
+                        options,
+                        comm_rank,
+                        tau,
+                        soc_mult_ind,
+                        watchdog,
+                        factorize_ok,
                     )
                 )
 
@@ -348,8 +401,10 @@ class Optimizer(
                         state.count_successive_filter_rejections += 1
                     else:
                         state.count_successive_filter_rejections = 0
-                    if (state.count_successive_filter_rejections >= filter_reset_trigger
-                            and state.filter_reset_count < max_filter_resets):
+                    if (
+                        state.count_successive_filter_rejections >= filter_reset_trigger
+                        and state.filter_reset_count < max_filter_resets
+                    ):
                         inner_filter.clear()
                         state.filter_reset_count += 1
                         state.count_successive_filter_rejections = 0
@@ -362,8 +417,14 @@ class Optimizer(
                 # Step F: Restoration if LS failed
                 if not step_accepted:
                     restored = self._restoration_phase(
-                        inertia_corrector, mult_ind, inner_filter, options,
-                        comm_rank, x, diag_base, zero_hessian_indices,
+                        inertia_corrector,
+                        mult_ind,
+                        inner_filter,
+                        options,
+                        comm_rank,
+                        x,
+                        diag_base,
+                        zero_hessian_indices,
                         zero_hessian_eps,
                     )
                     if restored:
@@ -384,10 +445,13 @@ class Optimizer(
                     if n_adj > 0 and comm_rank == 0:
                         print(f"  Slack adjustment: {n_adj} variable(s)")
                     self.optimizer.reset_bound_multipliers(
-                        self.barrier_param, 1e10, self.vars,
+                        self.barrier_param,
+                        1e10,
+                        self.vars,
                     )
                     self._update_gradient(self.vars.get_solution())
             else:
+
                 def _reject_step():
                     nonlocal step_rejected
                     step_rejected = True
@@ -395,8 +459,13 @@ class Optimizer(
 
                 reject_cb = _reject_step if inertia_corrector else None
                 alpha, state.line_iters, step_accepted = self._line_search(
-                    alpha_x, alpha_z, options, comm_rank,
-                    tau=tau, mult_ind=soc_mult_ind, reject_callback=reject_cb,
+                    alpha_x,
+                    alpha_z,
+                    options,
+                    comm_rank,
+                    tau=tau,
+                    mult_ind=soc_mult_ind,
+                    reject_callback=reject_cb,
                 )
 
             # Step G: Post-step update
@@ -408,16 +477,25 @@ class Optimizer(
                 if quality_func and state.qf_free_mode:
                     state.qf_free_mode, state.qf_monotone_mu = (
                         self._switch_qf_to_monotone(
-                            options, state.qf_mu_min, state.qf_mu_max, comm_rank,
+                            options,
+                            state.qf_mu_min,
+                            state.qf_mu_max,
+                            comm_rank,
                         )
                     )
 
                 state.consecutive_rejections = self._maybe_increase_barrier(
-                    state.consecutive_rejections, max_rejections, barrier_inc,
-                    initial_barrier, comm_rank,
+                    state.consecutive_rejections,
+                    max_rejections,
+                    barrier_inc,
+                    initial_barrier,
+                    comm_rank,
                 )
-                if (quality_func and not state.qf_free_mode
-                        and self.barrier_param > barrier_before):
+                if (
+                    quality_func
+                    and not state.qf_free_mode
+                    and self.barrier_param > barrier_before
+                ):
                     state.qf_monotone_mu = self.barrier_param
             else:
                 state.alpha_x_prev = alpha * alpha_x

@@ -115,9 +115,16 @@ class NewtonDirection:
             self.px.copy_device_to_host()
             lbx, ubx = self._get_relaxed_bounds()
             self.solver.iterative_refinement(
-                mu, mult_ind, rhs_copy,
-                self.vars, self.grad, lbx, ubx,
-                self.px, self.res, self.ir_corr,
+                mu,
+                mult_ind,
+                rhs_copy,
+                self.vars,
+                self.grad,
+                lbx,
+                ubx,
+                self.px,
+                self.res,
+                self.ir_corr,
             )
 
         # Step 4: Back-substitute for bound duals
@@ -144,14 +151,10 @@ class NewtonDirection:
         fl_orig = np.isfinite(lbx_orig)
         fu_orig = np.isfinite(ubx_orig)
         if np.any(fl_orig):
-            delta_l = np.minimum(
-                cvt, brf * np.maximum(1.0, np.abs(lbx_orig[fl_orig]))
-            )
+            delta_l = np.minimum(cvt, brf * np.maximum(1.0, np.abs(lbx_orig[fl_orig])))
             lbx[fl_orig] = lbx_orig[fl_orig] - delta_l
         if np.any(fu_orig):
-            delta_u = np.minimum(
-                cvt, brf * np.maximum(1.0, np.abs(ubx_orig[fu_orig]))
-            )
+            delta_u = np.minimum(cvt, brf * np.maximum(1.0, np.abs(ubx_orig[fu_orig])))
             ubx[fu_orig] = ubx_orig[fu_orig] + delta_u
         return lbx, ubx
 

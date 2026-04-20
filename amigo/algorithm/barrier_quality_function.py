@@ -207,10 +207,19 @@ class BarrierQualityFunction:
 
         def _eval(sigma):
             return self._evaluate_quality_function(
-                sigma, px0, dpx, mu_nat, tau_qf,
-                dual_inf, primal_inf, 0.0,
-                qf_sd, qf_sp, qf_sc,
-                centrality, balancing,
+                sigma,
+                px0,
+                dpx,
+                mu_nat,
+                tau_qf,
+                dual_inf,
+                primal_inf,
+                0.0,
+                qf_sd,
+                qf_sp,
+                qf_sc,
+                centrality,
+                balancing,
             )
 
         tol_probe = max(1e-4, sigma_tol)

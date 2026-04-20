@@ -96,8 +96,12 @@ class FilterLineSearch:
             ref_theta = self._compute_filter_theta()
             ref_barr = phi_current
             ref_dphi = self.optimizer.compute_barrier_dphi(
-                self.barrier_param, self.vars, self.update,
-                self.res, self.px, self.diag,
+                self.barrier_param,
+                self.vars,
+                self.update,
+                self.res,
+                self.px,
+                self.diag,
             )
 
         # theta_min, theta_max (Eq. 21)
@@ -278,8 +282,16 @@ class FilterLineSearch:
         return alpha_primal / alpha_x, n_steps, False, last_rejected_by_filter
 
     def _filter_line_search_with_watchdog(
-        self, alpha_x, alpha_z, inner_filter, options, comm_rank,
-        tau, soc_mult_ind, watchdog, factorize_ok,
+        self,
+        alpha_x,
+        alpha_z,
+        inner_filter,
+        options,
+        comm_rank,
+        tau,
+        soc_mult_ind,
+        watchdog,
+        factorize_ok,
     ):
         """Run the filter line search with watchdog start/stop/retry logic.
 
@@ -299,15 +311,21 @@ class FilterLineSearch:
                 print("  Watchdog stopped (factorization/tiny step)")
 
         # StartWatchDog
-        if (not watchdog.in_watchdog
-                and watchdog.trigger > 0
-                and watchdog.shortened_iter >= watchdog.trigger):
+        if (
+            not watchdog.in_watchdog
+            and watchdog.trigger > 0
+            and watchdog.shortened_iter >= watchdog.trigger
+        ):
             watchdog.save_iterate(self.vars, self.update, self.px, alpha_x)
             watchdog.theta = self._compute_filter_theta()
             watchdog.barr = self._compute_barrier_objective(self.vars)
             watchdog.dphi = self.optimizer.compute_barrier_dphi(
-                self.barrier_param, self.vars, self.update,
-                self.res, self.px, self.diag,
+                self.barrier_param,
+                self.vars,
+                self.update,
+                self.res,
+                self.px,
+                self.diag,
             )
             watchdog.in_watchdog = True
             watchdog.trial_iter = 0
@@ -325,12 +343,16 @@ class FilterLineSearch:
         while True:
             alpha, line_iters, step_accepted, filter_rejected = (
                 self._filter_line_search(
-                    alpha_x, alpha_z, inner_filter, options, comm_rank,
-                    tau=tau, mult_ind=soc_mult_ind, phi_current=phi_current,
+                    alpha_x,
+                    alpha_z,
+                    inner_filter,
+                    options,
+                    comm_rank,
+                    tau=tau,
+                    mult_ind=soc_mult_ind,
+                    phi_current=phi_current,
                     watchdog_ref=wd_ref if not skip_first else None,
-                    watchdog_alpha_primal_test=(
-                        wd_apt if not skip_first else None
-                    ),
+                    watchdog_alpha_primal_test=(wd_apt if not skip_first else None),
                 )
             )
 
@@ -347,8 +369,8 @@ class FilterLineSearch:
                     self._update_gradient(self.vars.get_solution())
                     watchdog.in_watchdog = False
                     watchdog.shortened_iter = 0
-                    alpha_x, _, alpha_z, _ = (
-                        self.optimizer.compute_max_step(tau, self.vars, self.update)
+                    alpha_x, _, alpha_z, _ = self.optimizer.compute_max_step(
+                        tau, self.vars, self.update
                     )
                     phi_current = self._compute_barrier_objective(self.vars)
                     skip_first = True

@@ -108,7 +108,10 @@ class MeritLineSearch:
 
                     self.solver.solve(self.res, self.px)
                     self.optimizer.compute_update(
-                        self.barrier_param, self.vars, self.px, self.update,
+                        self.barrier_param,
+                        self.vars,
+                        self.px,
+                        self.update,
                     )
 
                     soc_ax, _, soc_az, _ = self.optimizer.compute_max_step(
@@ -119,7 +122,10 @@ class MeritLineSearch:
                     )
                     self._update_gradient(self.temp.get_solution())
                     res_soc = self.optimizer.compute_residual(
-                        self.barrier_param, self.temp, self.grad, self.res,
+                        self.barrier_param,
+                        self.temp,
+                        self.grad,
+                        self.res,
                     )
 
                     if use_armijo:

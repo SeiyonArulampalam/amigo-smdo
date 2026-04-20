@@ -10,8 +10,9 @@ and direction-finding routines, and handles the rejection paths
 class BarrierUpdate:
     """Barrier-update orchestration per iteration."""
 
-    def _handle_zero_step_recovery(self, i, alpha_x_prev, alpha_z_prev,
-                                    zero_step_count, comm_rank):
+    def _handle_zero_step_recovery(
+        self, i, alpha_x_prev, alpha_z_prev, zero_step_count, comm_rank
+    ):
         """Escape stuck iterates by increasing the barrier parameter.
 
         Only active on the non-inertia-corrector path: if three consecutive
@@ -35,8 +36,9 @@ class BarrierUpdate:
             zero_step_count = 0
         return zero_step_count
 
-    def _initialize_qf_bounds(self, options, tol, compl_inf_tol,
-                               qf_mu_min, qf_mu_max, qf_state):
+    def _initialize_qf_bounds(
+        self, options, tol, compl_inf_tol, qf_mu_min, qf_mu_max, qf_state
+    ):
         """Compute one-shot QF constants on the first iteration.
 
         On iteration 0: derive qf_mu_min from tolerances, qf_mu_max from
@@ -58,11 +60,23 @@ class BarrierUpdate:
             self._qf_init_primal_inf = max(1.0, p0_sg)
         return qf_mu_min, qf_mu_max
 
-    def _step_quality_function(self, options, mult_ind, inertia_corrector,
-                                diag_base, x, zero_hessian_indices,
-                                zero_hessian_eps, comm_rank,
-                                qf_free_mode, qf_monotone_mu,
-                                qf_mu_min, qf_mu_max, tol, compl_inf_tol):
+    def _step_quality_function(
+        self,
+        options,
+        mult_ind,
+        inertia_corrector,
+        diag_base,
+        x,
+        zero_hessian_indices,
+        zero_hessian_eps,
+        comm_rank,
+        qf_free_mode,
+        qf_monotone_mu,
+        qf_mu_min,
+        qf_mu_max,
+        tol,
+        compl_inf_tol,
+    ):
         """Quality-function barrier update + factorize + QF mu oracle.
 
         Returns (qf_free_mode, qf_monotone_mu, factorize_ok).
@@ -115,8 +129,14 @@ class BarrierUpdate:
 
         # Factorize KKT system
         factorize_ok = self._factorize_kkt(
-            x, diag_base, inertia_corrector, mult_ind, options,
-            zero_hessian_indices, zero_hessian_eps, comm_rank,
+            x,
+            diag_base,
+            inertia_corrector,
+            mult_ind,
+            options,
+            zero_hessian_indices,
+            zero_hessian_eps,
+            comm_rank,
         )
 
         if qf_free_mode and factorize_ok:
@@ -135,11 +155,23 @@ class BarrierUpdate:
 
         return qf_free_mode, qf_monotone_mu, factorize_ok
 
-    def _step_classical(self, i, options, mult_ind, inertia_corrector,
-                         diag_base, x, zero_hessian_indices, zero_hessian_eps,
-                         comm_rank, res_norm,
-                         filter_monotone_mode, filter_monotone_mu,
-                         tol, compl_inf_tol):
+    def _step_classical(
+        self,
+        i,
+        options,
+        mult_ind,
+        inertia_corrector,
+        diag_base,
+        x,
+        zero_hessian_indices,
+        zero_hessian_eps,
+        comm_rank,
+        res_norm,
+        filter_monotone_mode,
+        filter_monotone_mu,
+        tol,
+        compl_inf_tol,
+    ):
         """Classical barrier update (heuristic or monotone) + direction.
 
         Returns (filter_monotone_mu, factorize_ok).
@@ -180,7 +212,8 @@ class BarrierUpdate:
                 if heuristic:
                     mu_floor = min(tol, compl_inf_tol) / (kappa_eps + 1.0)
                     self.barrier_param, _ = self._compute_barrier_heuristic(
-                        xi_h, comp_h,
+                        xi_h,
+                        comp_h,
                         options["heuristic_barrier_gamma"],
                         options["heuristic_barrier_r"],
                         mu_floor,
@@ -202,13 +235,25 @@ class BarrierUpdate:
         if inertia_corrector:
             inertia_corrector.update_barrier(self.barrier_param)
         factorize_ok = self._find_direction(
-            x, diag_base, inertia_corrector, mult_ind, options,
-            zero_hessian_indices, zero_hessian_eps, comm_rank,
+            x,
+            diag_base,
+            inertia_corrector,
+            mult_ind,
+            options,
+            zero_hessian_indices,
+            zero_hessian_eps,
+            comm_rank,
         )
         return filter_monotone_mu, factorize_ok
 
-    def _maybe_increase_barrier(self, consecutive_rejections, max_rejections,
-                                 barrier_inc, initial_barrier, comm_rank):
+    def _maybe_increase_barrier(
+        self,
+        consecutive_rejections,
+        max_rejections,
+        barrier_inc,
+        initial_barrier,
+        comm_rank,
+    ):
         """Increase barrier if we've hit max consecutive rejections."""
         if consecutive_rejections >= max_rejections:
             new_barrier = min(self.barrier_param * barrier_inc, initial_barrier)

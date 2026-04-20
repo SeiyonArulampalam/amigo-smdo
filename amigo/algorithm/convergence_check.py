@@ -11,7 +11,6 @@ which further progress is not possible.
 
 import numpy as np
 
-
 # Return codes for convergence check
 CONTINUE = 0
 CONVERGED = 1
@@ -23,8 +22,17 @@ PRECISION_FLOOR = 4
 class ConvergenceCheck:
     """Convergence checks: primary, acceptable, divergence, precision floor."""
 
-    def _check_convergence(self, i, options, mult_ind, res_norm, prev_res_norm,
-                           acceptable_counter, precision_floor_count, comm_rank):
+    def _check_convergence(
+        self,
+        i,
+        options,
+        mult_ind,
+        res_norm,
+        prev_res_norm,
+        acceptable_counter,
+        precision_floor_count,
+        comm_rank,
+    ):
         """Check all convergence criteria.
 
         Returns (status, overall_error, acceptable_counter, precision_floor_count)
@@ -90,9 +98,7 @@ class ConvergenceCheck:
                 if comm_rank == 0:
                     obj_acc = self._compute_barrier_objective(self.vars)
                     print(f"\n{'='*70}")
-                    print(
-                        f"  Amigo converged to acceptable point in {i} iterations"
-                    )
+                    print(f"  Amigo converged to acceptable point in {i} iterations")
                     print(f"{'='*70}")
                     print(f"  Objective value         {obj_acc:>20.10e}")
                     print(f"  NLP error               {overall_error:>20.10e}")
@@ -101,7 +107,12 @@ class ConvergenceCheck:
                     print(f"  Complementarity         {c_inf_nlp:>20.10e}")
                     print(f"  Total iterations        {i:>20d}")
                     print(f"{'='*70}")
-                return CONVERGED_ACCEPTABLE, overall_error, acceptable_counter, precision_floor_count
+                return (
+                    CONVERGED_ACCEPTABLE,
+                    overall_error,
+                    acceptable_counter,
+                    precision_floor_count,
+                )
         else:
             acceptable_counter = 0
 
@@ -117,6 +128,11 @@ class ConvergenceCheck:
                     f"  Precision floor: residual unchanged "
                     f"for {precision_floor_count} iterations"
                 )
-            return PRECISION_FLOOR, overall_error, acceptable_counter, precision_floor_count
+            return (
+                PRECISION_FLOOR,
+                overall_error,
+                acceptable_counter,
+                precision_floor_count,
+            )
 
         return CONTINUE, overall_error, acceptable_counter, precision_floor_count

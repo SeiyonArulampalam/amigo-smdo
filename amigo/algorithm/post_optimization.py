@@ -52,7 +52,9 @@ class PostOptimization:
         self.optimizer.compute_diagonal(self.vars, self.diag)
 
         self.solver.factor(
-            self._obj_scale, x, self.diag,
+            self._obj_scale,
+            x,
+            self.diag,
             post_hessian=self._hessian_scaling_fn,
         )
 
