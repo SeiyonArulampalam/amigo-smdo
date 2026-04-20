@@ -813,14 +813,8 @@ class Component:
         return out_shapes
 
     def _is_overridden(self, method_name):
-        instance_method = getattr(self, method_name)
-        base_method = getattr(type(self).__bases__[0], method_name, None)
-
-        # Unbind methods so we compare function objects directly
-        if isinstance(instance_method, types.MethodType):
-            instance_method = instance_method.__func__
-        if isinstance(base_method, types.MethodType):
-            base_method = base_method.__func__
+        instance_method = getattr(type(self), method_name, None)
+        base_method = getattr(Component, method_name, None)
 
         return instance_method is not base_method
 

@@ -45,3 +45,4 @@ from .interfaces import (
     ExplicitOpenMDAOPostOptComponent,
     AmigoIndepVarComp,
 )
+from .trajectory import *
