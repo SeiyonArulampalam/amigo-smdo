@@ -13,7 +13,7 @@ class Filter:
     Acceptance is a strict dominance check: a trial point is acceptable
     if it is NOT dominated by any filter entry.
 
-    The margins match Eq. 18:
+    The stored margins are
       phi_entry   = phi_ref - gamma_phi * theta_ref
       theta_entry = (1 - gamma_theta) * theta_ref
     """
@@ -35,7 +35,7 @@ class Filter:
         return True
 
     def add(self, phi, theta):
-        """Add entry with margins (Eq. 18), remove dominated."""
+        """Add the entry with its margins and drop entries it dominates."""
         phi_entry = phi - self.gamma_phi * theta
         theta_entry = (1.0 - self.gamma_theta) * theta
         self.entries = [

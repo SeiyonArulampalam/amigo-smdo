@@ -27,8 +27,8 @@ class MultiplierInitializer:
 
         The multipliers are recomputed only when recompute_multipliers is
         enabled, the least-squares estimate is in use, and the primal
-        infeasibility is below recompute_multiplier_tol; otherwise they are
-        left unchanged.
+        infeasibility is below recompute_multiplier_tol, and are left
+        unchanged otherwise.
         """
         if (
             self.options["recompute_multipliers"]
@@ -47,7 +47,7 @@ class MultiplierInitializer:
             [ A   0  ] [ lambda ] = [         0           ]
 
         whose (1,1) block is the identity, so lambda minimizes the dual
-        infeasibility norm; w is discarded.  Used to initialize the
+        infeasibility norm and w is discarded. Used to initialize the
         multipliers and, when recompute_multipliers is set, to refresh them
         once the iterate is nearly feasible.
         """
@@ -81,7 +81,7 @@ class MultiplierInitializer:
         update = state.step.get_solution()
         solver.solve(state.residual, update)
 
-        # Adopt the estimate only when its magnitude is within the cap, else keep the dual at zero
+        # Skip the estimate if its magnitude exceeds the cap
         update.get_values_at(con_indices, self.temp_con)
         if self.problem.maxabs(self.temp_con) <= self.options["constr_mult_init_max"]:
             x.copy_at(con_indices, update)
