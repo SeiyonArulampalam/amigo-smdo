@@ -875,7 +875,7 @@ class Model:
 
         After standard index assignment and reordering, this method also
         introduces explicit slack variables for inequality constraints,
-        following the formulation in Wachter & Biegler 2006 (eq. 1).
+        following the standard barrier formulation.
         Each inequality constraint ``lbc <= c(x) <= ubc`` is reformulated
         as an equality ``c(x) - s = 0`` with a bounded slack ``lbc <= s <= ubc``.
         The slack indices are appended to the variable space so that the
@@ -904,7 +904,16 @@ class Model:
         # Add the slack variables to the problem
         self.slack_names, self.ineq_names = self._initialize_slacks(con_indices)
 
-        # Now reorder the variables
+        # Reorder the variables, warning when DEFAULT silently falls back to AMD
+        if (
+            order_type == OrderingType.DEFAULT
+            and OrderingType.DEFAULT == OrderingType.AMD
+        ):
+            warnings.warn(
+                "OrderingType.DEFAULT is AMD in this build (METIS not compiled "
+                "in). Reordering large models will be slow, rebuild with METIS "
+                "for nested dissection."
+            )
         self._reorder_indices(order_type, con_indices, order_for_block)
 
         # After reordering, get the constraint information
@@ -1138,7 +1147,7 @@ class Model:
 
         Args:
             comm: MPI communicator (e.g. ``mpi4py.MPI.COMM_WORLD``). When provided,
-                only rank 0 generates and compiles the C++ module; all ranks then
+                only rank 0 generates and compiles the C++ module, and all ranks
                 synchronize at a barrier before returning. Pass ``None`` for
                 single-process runs.
             source_dir (str | Path | None): Directory that contains the amigo
@@ -1584,7 +1593,7 @@ amigo_add_python_module(
                 node_id, label=name, title=name, shape=comp_shape, color="#fed9a6"
             )
 
-            # name has the form "group[i]"; parse back out (group, i)
+            # name has the form "group[i]", parse back out (group, i)
             if "[" in name and name.endswith("]"):
                 cname, idx_str = name.split("[")
                 try:
