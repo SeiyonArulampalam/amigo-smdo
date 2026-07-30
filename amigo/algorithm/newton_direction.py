@@ -1,14 +1,9 @@
-"""Gradient evaluation, KKT factorization, and Newton solve.
+"""Newton step from an already-factorized KKT system.
 
-Evaluates the gradient, assembles and factorizes the KKT matrix
-(delegating inertia correction to InertiaCorrector when the solver
-supports it), solves the condensed augmented system, asks the solver
-to iteratively refine the result, and back-substitutes for the bound
-duals.  The iterative-refinement kernel itself lives on the
-LinearSolver base class.
+Solves against the factorization prepared by InertiaCorrector, forms the
+full primal-dual update, and records the fraction-to-boundary step lengths
+on the state.
 """
-
-import numpy as np
 
 
 class NewtonStep:
@@ -33,6 +28,9 @@ class NewtonStep:
         alpha_x, _, alpha_z, _ = self.optimizer.compute_max_step(
             state.tau, state.current, state.step
         )
+
+        # Record the raw primal step norm for the divergence watchdog
+        state.raw_step_norm = self.problem.maxabs(state.step.get_solution())
 
         state.max_alpha_primal = alpha_x
         state.max_alpha_dual = alpha_z

@@ -1,9 +1,8 @@
 """Per-iteration state carried through the optimization loop.
 
-IpmState holds the scalar counters, step-size history, and
-filter/rejection counts that change every iteration.  StepContext
-is a lightweight bag of per-iteration scratch data handed to the
-barrier strategy each step.
+InteriorPointState holds the current point, its derivatives, the
+barrier parameter, step lengths, and the error measures, along with
+the currency flags that mark which of them are up to date.
 """
 
 import amigo as am
@@ -49,6 +48,9 @@ class InteriorPointState:
     step: am.OptVector
     step_current: bool
 
+    # Unscaled primal step norm, for the divergence watchdog
+    raw_step_norm: float
+
     # Residual and step information
     residual_norm: float
     residual: am.Vector
@@ -77,6 +79,7 @@ class InteriorPointState:
 
         self.residual = problem.create_vector()
         self.diagonal = problem.create_vector()
+        self.diagonal_current = False
         self.hessian = problem.create_matrix()
         self.hessian_current = False
 
@@ -84,6 +87,7 @@ class InteriorPointState:
         self.max_alpha_dual = 1.0
         self.step = optimizer.create_opt_vector()
         self.step_current = False
+        self.raw_step_norm = 0.0
 
         self.residual_norm = 0.0
         self.residual = problem.create_vector()
@@ -93,6 +97,11 @@ class InteriorPointState:
         self.kkt_error = 0.0
         self.residual_current = False
 
+    @property
+    def barrier_objective(self):
+        """Scaled objective plus the log-barrier term"""
+        return self.objective_value + self.log_barrier_value
+
     def get_current_point(self):
         """Get the current primal-dual vector"""
         return self.current.get_solution()
@@ -101,13 +110,20 @@ class InteriorPointState:
         """Get the trial primal-dual vector"""
         return self.trial.get_solution()
 
-    def invalidate(self, obj=True, grad=True, hess=True, res=True, step=True):
+    def invalidate(
+        self, obj=True, grad=True, hess=True, res=True, step=True, diag=None
+    ):
+        # Diagonal depends on the point like the Hessian (not on mu)
+        if diag is None:
+            diag = hess
         if obj:
             self.objective_current = False
         if grad:
             self.gradient_current = False
         if hess:
             self.hessian_current = False
+        if diag:
+            self.diagonal_current = False
         if res:
             self.residual_current = False
         if step:

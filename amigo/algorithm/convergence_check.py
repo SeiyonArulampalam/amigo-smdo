@@ -1,13 +1,15 @@
 """Convergence tests for the interior-point loop.
 
-Four criteria are checked each iteration.  Primary convergence
-requires every KKT component below its tolerance.  Divergence halts
-the solve when the iterate magnitude exceeds a safety bound.
-Acceptable convergence flags a weaker solution once relaxed
-tolerances hold for several iterations in a row.  Precision-floor
-detection catches bit-identical residuals, the numerical limit below
-which further progress is not possible.
+Primary convergence requires every KKT component below its tolerance.
+Divergence halts the solve when the iterate magnitude or the Newton
+step exceeds a safety bound. Acceptable convergence flags a weaker
+solution once relaxed tolerances hold for several iterations in a row.
+Precision-floor detection catches bit-identical residuals, the limit
+below which further progress is not possible. A non-finite error or a
+stall at a non-acceptable point asks for feasibility restoration.
 """
+
+import numpy as np
 
 # Return codes for convergence check
 CONTINUE = 0
@@ -16,6 +18,8 @@ CONVERGED_ACCEPTABLE = 2
 DIVERGED = 3
 PRECISION_FLOOR = 4
 ITERATING = 5
+RESTORATION_NEEDED = 6
+LOCALLY_INFEASIBLE = 7
 
 
 class ConvergenceCheck:
@@ -34,6 +38,39 @@ class ConvergenceCheck:
 
         # Set the acceptable counter
         self.acceptable_counter = 0
+
+        # Count consecutive iterations with a divergent Newton step
+        self.diverging_step_count = 0
+
+        # Count consecutive accepted steps that stalled at a tiny alpha
+        self.small_alpha_count = 0
+
+    def test_small_alpha_stall(self, state):
+        """Report whether accepted steps keep stalling while infeasible.
+
+        Counts consecutive iterations whose primal step length is below
+        resto_trigger_alpha at a still-infeasible point, and returns True
+        once resto_trigger_iters of them accumulate. The counter resets on
+        the first healthy step and when the trigger fires.
+        """
+        stalled = (
+            state.max_alpha_primal < self.options["resto_trigger_alpha"]
+            and state.con_infeasibility > self.options["acceptable_constr_viol_tol"]
+        )
+        if not stalled:
+            self.small_alpha_count = 0
+            return False
+
+        self.small_alpha_count += 1
+        if self.small_alpha_count >= self.options["resto_trigger_iters"]:
+            self.small_alpha_count = 0
+            return True
+        return False
+
+    def reset_step_watchdog(self, state):
+        """Clear the stale step norm so the watchdog does not re-fire."""
+        self.diverging_step_count = 0
+        state.raw_step_norm = 0.0
 
     def test_convergence(self, evaluator, state):
         """
@@ -62,6 +99,12 @@ class ConvergenceCheck:
         c_inf_nlp = state.complementarity
         overall_error = state.kkt_error
 
+        # A non-finite iterate cannot recover, every test is False on NaN
+        if not np.isfinite(overall_error):
+            if state.comm_rank == 0:
+                print("  Non-finite KKT error: terminating (restoration needed)")
+            return RESTORATION_NEEDED
+
         # Primary convergence: ALL 4 conditions must hold
         if (
             overall_error <= tol
@@ -76,6 +119,21 @@ class ConvergenceCheck:
             if state.comm_rank == 0:
                 print(f"  Diverging iterates: max |x| = {x_max:.2e}")
             return DIVERGED
+
+        # Persistently large Newton steps indicate an unreliable factorization
+        step_norm = state.raw_step_norm
+        diverging_step_tol = self.options["diverging_step_tol"]
+        if diverging_step_tol > 0.0 and step_norm > diverging_step_tol:
+            self.diverging_step_count += 1
+            if self.diverging_step_count >= self.options["diverging_step_iters"]:
+                if state.comm_rank == 0:
+                    print(
+                        f"  Diverging step: ||d|| = {step_norm:.2e} for "
+                        f"{self.diverging_step_count} iterations"
+                    )
+                return DIVERGED
+        else:
+            self.diverging_step_count = 0
 
         # Acceptable convergence
         is_acceptable = (
@@ -109,5 +167,14 @@ class ConvergenceCheck:
                     f"for {self.precision_floor_count} iterations"
                 )
             return PRECISION_FLOOR
+
+        # A stall at a non-acceptable point requires restoration
+        if self.precision_floor_count >= 6:
+            if state.comm_rank == 0:
+                print(
+                    f"  Stalled at non-acceptable point for "
+                    f"{self.precision_floor_count} iterations (restoration needed)"
+                )
+            return RESTORATION_NEEDED
 
         return CONTINUE

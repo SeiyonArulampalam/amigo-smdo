@@ -1,6 +1,3 @@
-import numpy as np
-
-
 class Evaluator:
     def __init__(self, problem, optimizer):
         self.problem = problem
@@ -168,8 +165,10 @@ class Evaluator:
         return s_d, s_c
 
     def evaluate_diagonal(self, state):
-        """Evaluate the diagonal entries"""
-        self.optimizer.compute_diagonal(state.current, state.diagonal)
+        """Evaluate the barrier diagonal entries at the current point"""
+        if not state.diagonal_current:
+            self.optimizer.compute_diagonal(state.current, state.diagonal)
+            state.diagonal_current = True
 
     def evaluate_complementarity(self, state):
         comp, xi = self.optimizer.compute_complementarity(state.current)

@@ -2,7 +2,6 @@
 
 Builds the per-iteration record (objective, NLP error, step sizes,
 step norm, filter size, etc.) and prints the IPM progress table.
-Expensive debug diagnostics live in newton_diagnostics.py.
 """
 
 import sys
@@ -55,7 +54,7 @@ class OptimizationLogger:
         iter_data["inf_du"] = state.dual_infeas
         iter_data["compl"] = state.complementarity
         iter_data["nlp_error"] = state.kkt_error
-        iter_data["objective"] = state.objective_value + state.log_barrier_value
+        iter_data["objective"] = state.barrier_objective
         px = state.step.get_solution()
         iter_data["step_norm"] = self.problem.maxabs(px)
 
@@ -86,7 +85,7 @@ class OptimizationLogger:
             print(
                 f"{'iter':>4s}  {'nlp_error':>9s}  {'objective':>12s}  "
                 f"{'inf_pr':>9s}  {'inf_du':>9s}  {'compl':>9s}  "
-                f"{'mu':>9s}  {'||d||':>9s}  {'delta_w':>8s}  "
+                f"{'mu':>9s}  {'||d||':>9s}  {'delta_w':>8s}  {'ic':>2s}  "
                 f"{'alpha_x':>8s}  {'alpha_z':>8s}  "
                 f"{'ls':>2s}  {'filt':>4s}"
             )
@@ -103,13 +102,15 @@ class OptimizationLogger:
         az = iter_data.get("alpha_z", 0.0)
         ls = iter_data.get("line_iters", 0)
         fsize = iter_data.get("filter_size", 0)
+        # Factorizations spent on inertia correction, the main GPU cost
+        ic = iter_data.get("inertia_attempts", 0)
 
         dw_str = f"{delta_w:8.1e}" if delta_w > 0 else f"{'---':>8s}"
 
         print(
             f"{iteration:4d}  {nlp_err:9.2e}  {obj:12.5e}  "
             f"{inf_pr:9.2e}  {inf_du:9.2e}  {compl:9.2e}  "
-            f"{mu:9.2e}  {step_norm:9.2e}  {dw_str}  "
+            f"{mu:9.2e}  {step_norm:9.2e}  {dw_str}  {ic:2d}  "
             f"{ax:8.2e}  {az:8.2e}  "
             f"{ls:2d}  {fsize:4d}"
         )
