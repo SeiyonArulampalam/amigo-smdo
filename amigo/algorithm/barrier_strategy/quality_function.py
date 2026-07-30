@@ -1,10 +1,8 @@
 """Quality-function (adaptive) barrier strategy.
 
-Picks the next mu by either a Mehrotra predictor-corrector or a golden-
-section search on q_L(sigma).  Wraps this oracle in the adaptive-mu
-globalization from Nocedal & Wachter (2006): if the QF-picked mu stops
-making progress (by KKT error or obj-constr filter), fall back to a
-monotone decrease of mu until the subproblem is solved.
+Picks the next mu from a predictor-corrector estimate or a golden-section
+search on the quality function, falling back to a monotone decrease when
+the picked mu stops making progress.
 """
 
 import numpy as np
@@ -50,7 +48,7 @@ def _golden_section(f, a, b, sigma_tol, qf_tol, max_iters):
 
 
 class QualityFunctionBarrierStrategy(BarrierStrategy):
-    """Mehrotra PC / golden-section QF oracle with adaptive-mu globalization."""
+    """Quality-function oracle with adaptive-mu globalization."""
 
     def __init__(self, options, problem, optimizer):
         self.options = options
@@ -120,6 +118,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
                 self._remember_point(evaluator, state)
             else:
                 info.new_barrier = self._monotone_reduce(state)
+                info.new_subproblem = info.new_barrier
 
         if self.free_mode:
             info.new_barrier = True
@@ -128,6 +127,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
                 self._remember_point(evaluator, state)
             else:
                 info.new_barrier = self._enter_monotone_mode(evaluator, state)
+                info.new_subproblem = info.new_barrier
 
         info.mu_new = state.mu
 
@@ -254,7 +254,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         if glob == "obj-constr-filter":
             # Get the constraint gradient at the current point
             evaluator.evaluate_objective_and_infeasibility(state)
-            f_curr = state.objective_value + state.log_barrier_value
+            f_curr = state.barrier_objective
             theta_curr = state.con_infeasibility
 
             m1 = min(
@@ -282,7 +282,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
             self.refs.append(curr)
         elif glob == "obj-constr-filter":
             evaluator.evaluate_objective_and_infeasibility(state)
-            f_curr = state.objective_value + state.log_barrier_value
+            f_curr = state.barrier_objective
             theta_curr = state.con_infeasibility
 
             self.glob_filter.append((f_curr, theta_curr))
@@ -305,9 +305,6 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
 
     def _kkt_quality(self, evaluator, state):
         """Scalar KKT quality used for kkt-error globalization."""
-        # TODO: move to backend - combine scaling/centrality/balancing into
-        # one backend.kkt_quality(options) call.
-
         dual_sq, primal_sq, comp_sq = self.optimizer.compute_kkt_error(
             0.0, state.current, state.gradient
         )
@@ -334,7 +331,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         return qf
 
     def _quality_function_mu(self, solver, evaluator, state):
-        """Pick new mu via Mehrotra PC or golden-section QF search.
+        """Pick new mu via predictor-corrector or golden-section search.
 
         Sets self.px and self.update at the chosen mu for the caller.
         Returns (sigma, new_mu) or None on degenerate complementarity.
@@ -563,7 +560,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         self.optimizer.apply_step_update(
             alpha_x, alpha_z, state.current, state.step, self.temp
         )
-        # Eq. 4.2: complementarity term uses the plain products, no mu target
+        # The complementarity term uses the plain products, no mu target
         trial_comp_sq = self.optimizer.compute_sum_squared_complementarity(
             0.0, self.temp
         )

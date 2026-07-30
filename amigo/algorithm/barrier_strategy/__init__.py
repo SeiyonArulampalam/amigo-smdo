@@ -1,9 +1,8 @@
 """Barrier parameter update strategies.
 
-Two implementations:
-    HeuristicBarrier        - LOQO-style + monotone fallback (classical)
-    QualityFunctionBarrier  - Mehrotra PC / golden-section QF oracle
-                              with adaptive-mu globalization
+MonotoneBarrierStrategy           - monotone decrease with a progress gate
+HeuristicBarrierStrategy          - complementarity heuristic with fallback
+QualityFunctionBarrierStrategy    - predictor-corrector or golden section
 """
 
 from .base import BarrierStrategy
