@@ -1,27 +1,17 @@
 """Inertia correction for the augmented KKT system.
 
-Implements Algorithm IC from Wachter & Biegler (2006, Table 3).  Grows
-primal (delta_w) and constraint (delta_c) regularization until the
-factorized KKT matrix has the correct inertia (n_primal positive and
-n_dual negative eigenvalues), with a state machine that detects
-structural degeneracy across iterations.
+Grows the primal (delta_w) and constraint (delta_c) regularization until the
+factorized KKT matrix has the correct inertia, with a state machine that
+detects structural degeneracy across iterations.
 """
+
+import numpy as np
 
 
 class InertiaCorrector:
-    """Inertia correction for the KKT system (Algorithm IC, Wachter & Biegler 2006).
-
-    Manages primal (delta_w) and constraint (delta_c) regularization to
-    ensure correct inertia (n positive, m negative eigenvalues):
-      - ConsiderNewSystem: save last perturbation, reset current to zero.
-        If structurally degenerate, pre-apply delta_c / delta_x.
-      - PerturbForSingularity: add delta_c first, then delta_x.
-      - PerturbForWrongInertia: grow delta_x; on overflow, add delta_c
-        and restart delta_x search.
-      - finalize_test: structural degeneracy detection after consecutive
-        iterations needing the same perturbation type.
-      - IncreaseQuality: when too few negative eigenvalues, try improving
-        pivot tolerance before treating as singular.
+    """Grows primal and constraint regularization until the factorized
+    KKT matrix has the correct inertia, tracking structural degeneracy
+    across iterations.
     """
 
     # Degeneracy status
@@ -63,16 +53,27 @@ class InertiaCorrector:
         # Exposed for iterative refinement
         self.last_delta_w = 0.0
         self.last_delta_c = 0.0
+        self.last_attempts = 0
 
-        # Algorithm IC constants (Table 3, Wachter & Biegler 2006)
+        # Perturbation schedule constants
         self._dw_init = 1e-4  # first_hessian_perturbation
         self._dw_min = 1e-20  # min_hessian_perturbation
         self._dw_max = 1e20  # max_hessian_perturbation
         self._kw_inc = 8.0  # perturb_inc_fact
         self._kw_first_inc = 100.0  # perturb_inc_fact_first
         self._kw_dec = 1.0 / 3  # perturb_dec_fact
-        self._dc_val = 1e-8  # jacobian_regularization_value
-        self._dc_exp = 0.25  # jacobian_regularization_exponent
+        # jacobian_regularization: bar delta_c = val * mu^exp
+        self._dc_val = options["jacobian_regularization_value"]
+        self._dc_exp = options["jacobian_regularization_exponent"]
+
+        # Infeasibility-proportional dual regularization, set by the retry policy
+        self._dc_infeas_coeff = options["dual_reg_infeas_coeff"]
+        self._dc_infeas = 0.0
+        self._perturb_always_cd = options["perturb_always_cd"]
+        self._warm_start = options["hessian_perturbation_warm_start"]
+
+        # delta_c floor from the solver's static pivoting, set per factor call
+        self._dc_floor = 0.0
 
         # Structural degeneracy detection
         self._hess_degen = self._NOT_YET
@@ -88,8 +89,13 @@ class InertiaCorrector:
         self.verbose = self.options["verbose_barrier"]
 
     def _delta_cd(self, state):
-        """Constraint regularization: delta_c = delta_cd_val * mu^delta_cd_exp."""
-        return self._dc_val * state.mu**self._dc_exp
+        """Constraint regularization: delta_c = delta_cd_val * mu^delta_cd_exp.
+
+        Floored at the solver's static-pivot epsilon: below that scale the
+        dual block is inside the pivot perturbation and static pivoting
+        miscounts the inertia.
+        """
+        return max(self._dc_val * state.mu**self._dc_exp, self._dc_floor)
 
     def _get_deltas_for_wrong_inertia(self):
         """Grow delta_x geometrically. Returns False if delta_x exceeds max."""
@@ -158,7 +164,7 @@ class InertiaCorrector:
                     self._test_status = self._TEST_DC0_DX1
 
             elif ts == self._TEST_DC1_DX0:
-                # Already tried delta_c>0, delta_x=0 — still singular.
+                # Still singular after delta_c>0 with delta_x=0
                 # Now try delta_x>0, delta_c=0
                 self._delta_c_curr = 0.0
                 if not self._get_deltas_for_wrong_inertia():
@@ -166,15 +172,14 @@ class InertiaCorrector:
                 self._test_status = self._TEST_DC0_DX1
 
             elif ts == self._TEST_DC0_DX1:
-                # Tried delta_x>0, delta_c=0 — still singular.
-                # Now try both.
+                # Still singular after delta_x>0 with delta_c=0, so try both
                 self._delta_c_curr = self._delta_cd(state)
                 if not self._get_deltas_for_wrong_inertia():
                     return False
                 self._test_status = self._TEST_DC1_DX1
 
             elif ts == self._TEST_DC1_DX1:
-                # Both active — just grow delta_x.
+                # Both perturbations active, increase delta_x
                 if not self._get_deltas_for_wrong_inertia():
                     return False
 
@@ -238,8 +243,11 @@ class InertiaCorrector:
         """
         self._finalize_test()
 
+        # Dual reg bounding the multiplier step, applied only on a re-solve
+        self._dc_infeas = self._dc_infeas_coeff * state.primal_infeas
+
         # Pivot tolerance persists across iterations.  Once IncreaseQuality
-        # raises pivtol, the solver keeps the tighter setting.
+        # raises pivtol, the solver keeps the tighter setting
 
         # Save last perturbation
         if self._delta_x_curr > 0.0:
@@ -247,14 +255,16 @@ class InertiaCorrector:
         if self._delta_c_curr > 0.0:
             self._delta_c_last = self._delta_c_curr
 
-        # Set up degeneracy test for this iteration
+        # Degeneracy test for this iteration
         if self._hess_degen == self._NOT_YET or self._jac_degen == self._NOT_YET:
-            self._test_status = self._TEST_DC0_DX0
+            self._test_status = (
+                self._TEST_DC1_DX0 if self._perturb_always_cd else self._TEST_DC0_DX0
+            )
         else:
             self._test_status = self._NO_TEST
 
-        # Pre-apply delta_c if Jacobian structurally degenerate
-        if self._jac_degen == self._DEGENERATE:
+        # delta_c is delta_cd() when degenerate or always-on, else 0
+        if self._jac_degen == self._DEGENERATE or self._perturb_always_cd:
             self._delta_c_curr = self._delta_cd(state)
         else:
             self._delta_c_curr = 0.0
@@ -287,8 +297,9 @@ class InertiaCorrector:
         if delta_x > 0:
             perturb.add_scalar_at(primal_indices, delta_x)
 
-        delta_c = self._delta_c_curr
+        delta_c = max(self._delta_c_curr, self._dc_infeas)
         if delta_c > 0:
+            delta_c = max(delta_c, self._dc_floor)
             perturb.add_scalar_at(dual_indices, -delta_c)
 
         return
@@ -300,7 +311,9 @@ class InertiaCorrector:
         solver.factor(hessian, perturb)
 
         npos, nneg = solver.get_inertia()
-        return npos, nneg, False
+        # npos + nneg < n means structurally zero pivots, route to delta_c
+        nzero = (self.num_primal + self.num_dual) - (npos + nneg)
+        return npos, nneg, nzero > 0
 
     def factor_for_inertia(self, solver, evaluator, state):
         """Assemble, regularize, and factorize the KKT matrix."""
@@ -315,10 +328,23 @@ class InertiaCorrector:
         if not solver.inertia_enabled():
             self._compute_perturbation(state.diagonal, self.perturbed_diagonal)
             solver.factor(state.hessian, self.perturbed_diagonal)
+            self.last_attempts = 1
             return True
+
+        self._dc_floor = solver.static_pivot_floor()
 
         # Prepare new system: save last perturbation, reset current
         self._consider_new_system(state)
+
+        # Skip the delta_x = 0 try once the degeneracy probes are finished
+        if (
+            self._warm_start
+            and self._test_status == self._NO_TEST
+            and self._hess_degen != self._DEGENERATE
+            and self._delta_x_curr == 0.0
+            and self._delta_x_last > 0.0
+        ):
+            self._delta_x_curr = max(self._dw_min, self._kw_dec * self._delta_x_last)
 
         # Sync pivot tolerance to solver
         solver.set_pivot_tolerance(self._pivtol)
@@ -335,6 +361,7 @@ class InertiaCorrector:
                 # Success
                 self.last_delta_w = self._delta_x_curr
                 self.last_delta_c = self._delta_c_curr
+                self.last_attempts = attempt + 1
                 if self._delta_x_curr > 0 and state.comm_rank == 0 and self.verbose:
                     print(
                         f"  Inertia correction: "
@@ -376,9 +403,10 @@ class InertiaCorrector:
                         )
                     break
 
-        # Inertia correction failed — store last actually-applied values
+        # Inertia correction failed, store the last applied values
         self.last_delta_w = self._delta_x_curr
         self.last_delta_c = self._delta_c_curr
+        self.last_attempts = self.max_corrections + 1
 
         return False
 
@@ -393,3 +421,5 @@ class InertiaCorrector:
     def add_log_info(self, info):
         """Add information to the logger"""
         info["inertia_delta"] = self.last_delta_w
+        info["inertia_delta_c"] = self.last_delta_c
+        info["inertia_attempts"] = self.last_attempts

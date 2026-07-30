@@ -1,7 +1,7 @@
 """Amigo's native LDL direct solver for the KKT system.
 
 Wraps the C++ SparseLDL factorization. Supports inertia queries,
-which lets it drive Algorithm IC inertia correction.
+which lets it drive the inertia correction.
 """
 
 from . import LinearSolver
@@ -14,7 +14,10 @@ class AmigoSolver(LinearSolver):
         self.hessian = state.hessian
 
         ustab = 0.01
-        pivot_tol = 1e-14
+        # Pivots below pivot_tol count as zero in get_inertia (drives delta_c)
+        pivot_tol = (
+            options.get("amigo_pivot_tol", 1e-14) if hasattr(options, "get") else 1e-14
+        )
 
         self.ldl = SparseLDL(
             self.hessian,

@@ -122,9 +122,9 @@ class MumpsSolver(LinearSolver):
         self._mumps.icntl[9] = 0  # ICNTL(10): no iterative refinement
         self._mumps.icntl[12] = 1  # ICNTL(13): proper inertia detection
         self._mumps.icntl[13] = 1000  # ICNTL(14): workspace increase %
-        # ICNTL(24) = 0: null pivot detection off during normal factorization.
+        # ICNTL(24) = 0: null pivot detection off during normal factorization
         # When enabled, near-zero negative pivots can be misclassified as
-        # "null", corrupting the inertia count.
+        # "null", corrupting the inertia count
         self._mumps.icntl[23] = 0  # ICNTL(24): null pivot detection OFF
         self._mumps.cntl[0] = 1e-6  # CNTL(1):  pivot tolerance
 

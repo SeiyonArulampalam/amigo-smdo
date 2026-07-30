@@ -1,20 +1,22 @@
-"""Full-KKT GPU direct solver using the cuDSS symmetric-indefinite LDL^T.
+"""Bordered GPU direct solver for KKT systems with dense hub columns.
 
-The augmented KKT system is factorized as-is on device, with no
-condensation. cuDSS pivots statically, so reliability rests on
-quasi-definite regularization, the perturbed-pivot count, the reported
-inertia, and a per-solve residual trust check. Single GPU and in-core.
+A globally coupled scalar, such as a free final time linked into every
+element, puts a dense column into the KKT matrix that makes the cuDSS
+symbolic analysis superlinear and serializes its numeric factorization.
+This solver detects those columns from the sparsity pattern, factors the
+hub-free block with cuDSS, and eliminates the border exactly through a
+small Schur complement, so the iterates match factoring the full matrix.
 """
 
 from . import LinearSolver
 
 
-class DirectCudaSolver(LinearSolver):
+class BorderedCudaSolver(LinearSolver):
     def __init__(self, options, state):
         try:
-            from amigo.amigo import CSRMatFactorCuda, Vector
+            from amigo.amigo import CSRMatFactorCudaBordered, Vector
         except Exception:
-            raise NotImplementedError("Amigo compiled without CUDA support")
+            raise NotImplementedError("Amigo compiled without CUDA/cuDSS support")
 
         get = options.get if hasattr(options, "get") else lambda k, d: d
         self.pivot_eps = float(get("cuda_pivot_eps", 1e-8))
@@ -23,8 +25,13 @@ class DirectCudaSolver(LinearSolver):
         self.residual_rtol = float(get("cuda_residual_rtol", 1e-4))
 
         self.mat_copy = state.hessian.duplicate()
-        self.solver = CSRMatFactorCuda(self.mat_copy, self.pivot_eps)
+        self.solver = CSRMatFactorCudaBordered(self.mat_copy, self.pivot_eps)
         self.solver.set_ir_steps(self.ir_steps)
+        if self.solver.num_bordered() == 0:
+            print(
+                "  BorderedCudaSolver: no hub columns detected, behaves as "
+                "the plain cuDSS solver"
+            )
 
         self._Vector = Vector
         self._tmp = None
@@ -36,7 +43,7 @@ class DirectCudaSolver(LinearSolver):
 
         if not get("perturb_always_cd", False):
             print(
-                "  DirectCudaSolver: set perturb_always_cd=True, static "
+                "  BorderedCudaSolver: set perturb_always_cd=True, static "
                 "pivoting is only reliable on a quasi-definite KKT"
             )
 
@@ -45,14 +52,13 @@ class DirectCudaSolver(LinearSolver):
         self.mat_copy.add_diagonal(diagonal)
         self.solver.factor()
 
-        # A perturbed pivot means the inertia and step belong to another matrix
         self.last_perturbed_pivots = self.solver.num_perturbed_pivots()
         if self.last_perturbed_pivots > 0:
             self.num_perturbed_factorizations += 1
             n = self.num_perturbed_factorizations
             if n <= 3 or n % 25 == 0:
                 print(
-                    f"  DirectCudaSolver: {self.last_perturbed_pivots} "
+                    f"  BorderedCudaSolver: {self.last_perturbed_pivots} "
                     f"statically perturbed pivots (factorization {n})"
                 )
 
@@ -60,7 +66,7 @@ class DirectCudaSolver(LinearSolver):
         self.solver.solve(bx, px)
 
         if self.check_residual:
-            # r = K p - b on device, against the matrix as factorized
+            # r = K p - b on device against the FULL bordered matrix
             if self._tmp is None:
                 self._tmp = self._Vector(len(bx.get_array()))
             self.solver.residual(bx, px, self._tmp)
@@ -72,15 +78,14 @@ class DirectCudaSolver(LinearSolver):
                 n = self.num_residual_violations
                 if n <= 3 or n % 25 == 0:
                     print(
-                        f"  DirectCudaSolver: solve residual "
+                        f"  BorderedCudaSolver: solve residual "
                         f"{self.last_rel_residual:.2e} > rtol "
                         f"{self.residual_rtol:.1e} (violation {n})"
                     )
-                # Repeated violations mean the perturbations are too large
                 if n % 3 == 0 and self.pivot_eps > 1e-14:
                     self.pivot_eps = max(self.pivot_eps / 10.0, 1e-14)
                     print(
-                        f"  DirectCudaSolver: tightening pivot epsilon to "
+                        f"  BorderedCudaSolver: tightening pivot epsilon to "
                         f"{self.pivot_eps:.1e}"
                     )
 
@@ -91,13 +96,12 @@ class DirectCudaSolver(LinearSolver):
         return self.solver.get_inertia()
 
     def set_pivot_tolerance(self, pivtol):
-        # MUMPS pivtol rises for quality, cuDSS epsilon falls, so map inversely
+        # Same monotone pivtol to epsilon mapping as DirectCudaSolver
         eps = max(1e-14, self.pivot_eps * (1e-6 / max(float(pivtol), 1e-30)))
         self._eps_eff = eps
         self.solver.set_pivot_epsilon(eps)
 
     def static_pivot_floor(self):
-        # Keep the dual block above the perturbation threshold
         return 10.0 * self._eps_eff
 
     def add_log_info(self, info):

@@ -45,7 +45,7 @@ class DirectPetscSolver(LinearSolver):
         self.ksp = PETSc.KSP().create(comm=self.comm)
         self.ksp.setOperators(self.H)
         self.ksp.setTolerances(rtol=1e-16)
-        self.ksp.setType("preonly")  # Do not iterate — direct solve only
+        self.ksp.setType("preonly")  # Direct solve only, no iteration
 
         pc = self.ksp.getPC()
         pc.setType("cholesky")

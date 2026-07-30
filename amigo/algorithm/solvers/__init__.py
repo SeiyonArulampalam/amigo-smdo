@@ -2,6 +2,7 @@ from .inertia_correction import InertiaCorrector
 from .linear_solver import LinearSolver
 
 from .cuda_solver import DirectCudaSolver
+from .bordered_cuda_solver import BorderedCudaSolver
 from .mumps_solver import MumpsSolver
 from .amigo_solver import AmigoSolver
 
@@ -13,7 +14,7 @@ from .amigo_solver import AmigoSolver
 import warnings
 
 
-def make_solver(options, state):
+def make_solver(options, state, problem=None, optimizer=None):
     """Make the linear solver depending on the options"""
     if isinstance(options["solver"], LinearSolver):
         return options["solver"]
@@ -33,27 +34,9 @@ def make_solver(options, state):
                 "Exception on DirectCudaSolver import, reverting to AmigoSolver"
             )
             return AmigoSolver(options, state)
+    elif options["solver"] == "cuda_bordered":
+        # Same iterates as "cuda", with hub columns eliminated by Schur
+        return BorderedCudaSolver(options, state)
     else:
         solver = options["solver"]
         raise ValueError(f"Unrecognized solver {solver}")
-
-        # if solver is None and self.distribute:
-        #     self.solver = DirectPetscSolver(self.comm, self.problem)
-        # elif isinstance(solver, str):
-        #     solver_pref = solver.lower()
-        #     if solver_pref == "scipy":
-        #         self.solver = DirectScipySolver(self.problem)
-        #     elif solver_pref == "pardiso":
-        #         self.solver = PardisoSolver(self.problem)
-        #     elif solver_pref == "mumps":
-        #         try:
-        #             self.solver = MumpsSolver(self.problem)
-        #         except:
-        #             self.solver = AmigoSolver(self.problem)
-        #     elif solver_pref == "amigo":
-        #         self.solver = AmigoSolver(self.problem)
-        #     else:
-        #         raise ValueError(
-        #             f"Unknown solver string '{solver}'. "
-        #             "Expected one of: 'scipy', 'pardiso', 'mumps', 'amigo'."
-        #         )

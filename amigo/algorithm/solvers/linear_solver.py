@@ -20,6 +20,10 @@ class LinearSolver(ABC):
     def set_pivot_tolerance(self, pivtol):
         pass
 
+    def static_pivot_floor(self):
+        # Static-pivoting solvers return their perturbation epsilon floor
+        return 0.0
+
     @staticmethod
     def find_diag_indices(rowp, cols, nrows):
         """Find the CSR data-array index of each diagonal entry (row == col)."""
