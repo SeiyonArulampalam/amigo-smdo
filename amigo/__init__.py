@@ -39,6 +39,7 @@ from .amigo import (
 )
 from .component import Component
 from .model import Model
+from .expression_component import ExpressionComponent
 from .diagnostics import Diagnostics
 from .algorithm import *
 from .utils import *
