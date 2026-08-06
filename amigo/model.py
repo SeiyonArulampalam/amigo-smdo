@@ -718,10 +718,16 @@ class Model:
                 or (vtype == "output" and is_output)
             ):
                 a_all = self.get_indices(a_var)
-                a_indices = self._get_slice_indices(a_all, a_slice, a_idx)
+                try:
+                    a_indices = self._get_slice_indices(a_all, a_slice, a_idx)
+                except:
+                    raise IndexError(f"Error in obtaining slice for {a_expr}")
 
                 b_all = self.get_indices(b_var)
-                b_indices = self._get_slice_indices(b_all, b_slice, b_idx)
+                try:
+                    b_indices = self._get_slice_indices(b_all, b_slice, b_idx)
+                except:
+                    raise IndexError(f"Error in obtaining slice for {b_expr}")
 
                 if a_indices.shape == b_indices.shape:
                     tracker.alias(a_indices.flatten(), b_indices.flatten())
