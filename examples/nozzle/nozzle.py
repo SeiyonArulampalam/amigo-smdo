@@ -719,7 +719,7 @@ def continuation_control(state):
     name = "design_continuation.diagonal_weight[0]"
     data[name] = np.max((0.0, 100.0 - 2 * iteration))
     data["pseudo_transient.CFL[0]"] = np.min((10000.0, 10.0 + 5.0 * iteration))
-    data.get_vector().copy_host_to_device()
+    data.copy_host_to_device()
     return
 
 
@@ -736,7 +736,7 @@ opt = am.Optimizer(model, x)
 opt_history = opt.optimize(
     {
         "solver": args.solver,
-        "barrier_strategy": "heuristic",
+        "barrier_strategy": "monotone",
         "max_iterations": 200,
         "record_components": ["area.control_points.area_ctrl"],
         "max_line_search_iterations": 30,
