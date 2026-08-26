@@ -1,5 +1,5 @@
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from .component import Component
 
@@ -198,12 +198,20 @@ class ExpressionComponent(Component):
     ):
         super().__init__(name=name)
 
-        inputs = self._normalize_mapping("inputs", inputs)
-        constants = self._normalize_mapping("constants", constants)
-        data = self._normalize_mapping("data", data)
-        objective = self._normalize_mapping("objective", objective)
-        constraints = self._normalize_mapping("constraints", constraints)
-        outputs = self._normalize_mapping("outputs", outputs)
+        inputs = self._normalize_named_specs("inputs", inputs, allow_name_sequence=True)
+        constants = self._normalize_named_specs(
+            "constants", constants, allow_name_sequence=False
+        )
+        data = self._normalize_named_specs("data", data, allow_name_sequence=True)
+        objective = self._normalize_named_specs(
+            "objective", objective, allow_name_sequence=False
+        )
+        constraints = self._normalize_named_specs(
+            "constraints", constraints, allow_name_sequence=False
+        )
+        outputs = self._normalize_named_specs(
+            "outputs", outputs, allow_name_sequence=False
+        )
 
         self._objective_expressions = {}
         self._constraint_expressions = {}
@@ -269,14 +277,40 @@ class ExpressionComponent(Component):
             self._output_expressions[variable_name] = expression
 
     @staticmethod
-    def _normalize_mapping(category, specification):
+    def _normalize_named_specs(
+        category,
+        specification,
+        allow_name_sequence=False,
+    ):
         if specification is None:
             return {}
 
-        if not isinstance(specification, Mapping):
-            raise TypeError(f"{category} must be a mapping")
+        if isinstance(specification, Mapping):
+            return dict(specification)
 
-        return specification
+        if allow_name_sequence:
+            if isinstance(specification, (list, tuple)):
+                result = {}
+
+                for name in specification:
+                    if not isinstance(name, str):
+                        raise TypeError(
+                            f"Entries in {category} must be strings; "
+                            f"received {name!r}"
+                        )
+
+                    if name in result:
+                        raise ValueError(f"Duplicate name {name!r} in {category}")
+
+                    result[name] = {}
+
+                return result
+
+        expected = "a mapping"
+        if allow_name_sequence:
+            expected += " or a sequence of names"
+
+        raise TypeError(f"{category} must be {expected}")
 
     @staticmethod
     def _normalize_metadata(specification, scalar_key):

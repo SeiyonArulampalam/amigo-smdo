@@ -1,7 +1,7 @@
 import amigo as am
 import numpy as np
 from . import basis
-from .connectivity import InpParser
+from .connectivity import InpParser, BdfParser
 from .element import FiniteElement, FiniteElementOutput
 from .plot_utils import plot
 from pathlib import Path
@@ -283,6 +283,8 @@ class Mesh:
         if ext == ".inp" or ext == ".INP":
             self.parser = InpParser()
             self.parser.parse_inp(filename)
+        elif ext == ".bdf" or ext == ".BDF":
+            self.parser = BdfParser(filename)
         else:
             raise ValueError(f"Unrecognized file extension {ext}")
 

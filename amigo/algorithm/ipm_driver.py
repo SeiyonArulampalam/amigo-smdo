@@ -294,7 +294,12 @@ class Optimizer:
         self.problem.compute_output(self.x, out_vec)
         return output
 
-    def compute_post_opt_derivatives(self, of=[], wrt=[], method="adjoint"):
+    def compute_post_opt_derivatives(
+        self,
+        of: str | list[str] | None = None,
+        wrt: str | list[str] | None = None,
+        method="adjoint",
+    ):
         """
         Compute the post-optimality derivatives of the outputs.
 
@@ -306,8 +311,15 @@ class Optimizer:
             Use adjoint when len(of) < len(wrt), direct otherwise.
         """
 
+        if self.model is None:
+            raise RuntimeError("Model cannot be None for post-optimiality derivatives")
         if self.state is None:
             raise RuntimeError("Call optimize() before compute_post_opt_derivatives")
+
+        if of is None:
+            _, _, _, of = self.model.get_names()
+        if wrt is None:
+            _, _, wrt, _ = self.model.get_names()
 
         of_indices, of_map = self.model.get_indices_and_map(of)
         wrt_indices, wrt_map = self.model.get_indices_and_map(wrt)
