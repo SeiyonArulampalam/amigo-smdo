@@ -73,6 +73,7 @@ env/
 *.out
 *.md
 !README.md
+!README_pixi.md
 !website/**/*.md
 
 # External dependencies
