@@ -21,6 +21,8 @@ name = "amigo"
 version = "0.0.1"
 description = "A friendly library for multidisciplinary analysis and optimization"
 channels = ["conda-forge"]
+# CI only tests Apple Silicon. To add osx-64, copy each osx-arm64 block below,
+# add "osx-64" here, and re-run `pixi lock`.
 platforms = ["linux-64", "osx-arm64", "win-64"]
 
 # ---------------------------------------------------------------------------
@@ -213,11 +215,3 @@ CUDSS_HOME = "$CONDA_PREFIX"
 [feature.cuda.tasks.install-amigo-cuda]
 depends-on = ["a2d"]
 cmd = "pip install --no-build-isolation -e . -v -Ccmake.args=-DAMIGO_ENABLE_OPENMP=ON -Ccmake.args=-DAMIGO_ENABLE_CUDA=ON -Ccmake.args=-DAMIGO_ENABLE_CUDSS=ON -Ccmake.args=-DCMAKE_CUDA_ARCHITECTURES=native -Ccmake.args=-DAMIGO_ENABLE_METIS=ON"
-
-# Example: cart-pole trajectory optimization. `--build` regenerates and
-# compiles the model's C++ module, which is why cmake and a compiler are part
-# of the runtime environment.
-[tasks.cart-pole]
-cmd = "python cart_pole.py --build"
-cwd = "examples/trajectory/cart"
-depends-on = ["install-amigo"]

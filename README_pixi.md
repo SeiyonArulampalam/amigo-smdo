@@ -26,7 +26,6 @@ From the repository root:
 ```bash
 pixi install           # create the environment (first run downloads packages)
 pixi run install-amigo # clone a2d if needed, then build and install amigo
-pixi run cart-pole     # build and solve the cart-pole example
 ```
 
 `pixi run install-amigo` performs an editable install (`pip install -e .`), so
@@ -67,7 +66,7 @@ What to expect:
 - Windows may prompt for elevation. A reboot is not usually required
   (`--norestart`), but restart the terminal so the new tools are picked up.
 
-Verify it landed:
+Verify:
 
 ```powershell
 winget list --id Microsoft.VisualStudio.2022.BuildTools
@@ -86,12 +85,6 @@ prints something like:
 If you already have Visual Studio 2019 or 2022 Community/Professional with the
 "Desktop development with C++" workload, that works too — nothing extra to
 install.
-
-### Intel macOS
-
-`osx-64` is not in the platform list, because CI only tests Apple Silicon. To
-add it, copy each `osx-arm64` block in `pixi.toml`, add `"osx-64"` to
-`workspace.platforms`, and re-run `pixi lock`.
 
 ## Environments
 
@@ -124,7 +117,6 @@ useful for running ad-hoc scripts or pointing an IDE at
 | `install-amigo` | Editable install with METIS enabled, CUDA disabled, and OpenMP on (off on Windows, matching CI). |
 | `install-amigo-cuda` | `cuda` environment only: editable install with CUDA, cuDSS and `CMAKE_CUDA_ARCHITECTURES=native`. |
 | `test` | Runs `pytest tests/ -v`, installing amigo first. Use with `-e dev`. |
-| `cart-pole` | Builds and solves `examples/trajectory/cart/cart_pole.py --build`. |
 | `lint` / `format` | `black --check .` / `black .` |
 | `clean` | Removes build directories and `__pycache__`. |
 
@@ -172,15 +164,6 @@ rather than an `activation.env` entry, because pixi does not expand
 **Paths are passed through the environment, not the command line.** Windows
 paths contain backslashes, and CMake treats those as escape characters in
 `-D` arguments, so the install tasks deliberately pass no paths.
-
-## Maintaining the manifest
-
-```bash
-pixi add scipy                # add a conda dependency
-pixi add --pypi some-package  # add a PyPI-only dependency
-pixi update                   # refresh pixi.lock
-pixi list                     # show what is installed
-```
 
 Commit `pixi.toml` **and** `pixi.lock` — the lock file is what makes builds
 reproducible. `.pixi/` is generated and should stay out of git.

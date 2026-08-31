@@ -50,6 +50,7 @@ include/amigo_include_paths.h
 venv/
 .venv/
 env/
+/.pixi/
 
 # Examples: only track .py files and data (csv, tracks/)
 /examples/**/*.h
