@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout amigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Nothing else needs installing. The compiler toolchain, MPI, BLAS /
       # LAPACK, METIS and MUMPS all come from the pixi environment, and the
