@@ -1,0 +1,63 @@
+name: pytest (pixi)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One run per ref; cancel superseded runs.
+concurrency:
+  group: pytest-pixi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout amigo
+        uses: actions/checkout@v4
+
+      # Nothing else needs installing. The compiler toolchain, MPI, BLAS /
+      # LAPACK, METIS and MUMPS all come from the pixi environment, and the
+      # a2d headers are cloned into ../a2d by the `a2d` task that every
+      # install task depends on. The Windows runners already provide MSVC,
+      # which conda-forge cannot ship.
+      #
+      # `locked: true` fails the run if pixi.lock is out of date with respect
+      # to pixi.toml, so the lock file cannot silently drift.
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          pixi-version: v0.72.1
+          environments: dev
+          cache: true
+          locked: true
+
+      - name: Build and install amigo
+        run: pixi run -e dev install-amigo 2>&1 | tee install.log
+
+      # Regression guard: METIS used to be silently disabled on every
+      # platform, because CMakeLists.txt pre-created the find_ result
+      # variables as empty cache entries. The build still succeeds without
+      # METIS, so nothing but this check would notice a relapse.
+      - name: Check METIS was detected
+        run: |
+          if grep -q "METIS not found" install.log; then
+            echo "::error::METIS was not detected. The pixi environment ships METIS and exports METIS_ROOT, so this is a detection regression, not a missing dependency."
+            exit 1
+          fi
+          grep "METIS found" install.log
+
+      - name: Run tests
+        run: pixi run -e dev pytest tests/ -v

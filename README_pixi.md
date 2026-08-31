@@ -197,12 +197,14 @@ Build Tools are missing or lack the C++ workload. See
 `scripts/pixi-activate.bat` exists and that `pixi run python -c "import os;
 print(os.environ['MSMPI_INC'])"` prints an absolute path.
 
-**`METIS not found: disabling METIS support`** — this is an amigo issue, not a
-pixi one. `CMakeLists.txt` pre-creates the `METIS_INCLUDE_DIR` and
-`METIS_LIBRARY` cache entries as empty strings, and `find_path`/`find_library`
-skip searching when their result variable is already set, so `FindMETIS` can
-never succeed on its own. amigo builds and runs correctly without METIS; the
-effect is on ordering performance for large problems.
+**`METIS not found: disabling METIS support`** — the pixi environment exports
+`METIS_ROOT`, so this should not happen; a configure in the pixi environment
+prints `METIS found: enabling AMIGO_USE_METIS`. If you see it anyway, check
+that `pixi run python -c "import os; print(os.environ['METIS_ROOT'])"` prints
+an absolute path, and that a stale CMake cache is not holding empty
+`METIS_INCLUDE_DIR` / `METIS_LIBRARY` values — `pixi run clean` clears it.
+amigo builds and runs correctly without METIS; the effect is on ordering
+performance for large problems.
 
 **Stale build after changing C++ sources** — run `pixi run clean` followed by
 `pixi run install-amigo`.

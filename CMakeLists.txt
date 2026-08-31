@@ -134,9 +134,14 @@ endif()
 # Try to find METIS
 if(AMIGO_ENABLE_METIS)
   set(METIS_ROOT "" CACHE PATH "Root directory of METIS installation")
-  set(METIS_INCLUDE_DIR "" CACHE PATH "Path to METIS headers")
-  set(METIS_LIBRARY "" CACHE FILEPATH "Path to libmetis")
 
+  # NOTE: METIS_INCLUDE_DIR and METIS_LIBRARY are deliberately not seeded with
+  # empty cache entries here. find_path() and find_library() skip searching
+  # when their result variable is already set in the cache, and an empty string
+  # counts as set, so pre-creating them would make FindMETIS.cmake a no-op and
+  # METIS could only ever be found by passing both paths on the command line.
+  # Passing -DMETIS_INCLUDE_DIR=... -DMETIS_LIBRARY=... still works: those
+  # define the variables before the check below.
   list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
   unset(METIS_FOUND)
@@ -158,7 +163,10 @@ if(AMIGO_ENABLE_METIS)
   if(METIS_FOUND)
     message(STATUS "METIS found: enabling AMIGO_USE_METIS")
   else()
-    message(STATUS "METIS not found: disabling METIS support")
+    message(STATUS
+      "METIS not found: disabling METIS support. Set METIS_ROOT (or the "
+      "METIS_ROOT environment variable) to a METIS installation prefix, or "
+      "set METIS_INCLUDE_DIR and METIS_LIBRARY directly, to enable it.")
     set(AMIGO_ENABLE_METIS OFF)
   endif()
 endif()
