@@ -1,0 +1,217 @@
+# ---------------------------------------------------------------------------
+# pixi.toml -- reproducible environments for amigo
+#
+#   pixi install                  # solve + create the default environment
+#   pixi run install-amigo        # clone a2d (if needed) and build/install amigo
+#   pixi run -e dev test          # run the test suite
+#
+# Everything amigo needs at *build* time (CMake, a C++ compiler, MPI, BLAS /
+# LAPACK, METIS, pybind11, mpi4py) and at *run* time (amigo compiles generated
+# model modules on the fly with cmake, and dlopens MUMPS) is pinned here, so
+# the "difficult" dependencies do not have to be installed by hand.
+#
+# Not covered by pixi (see comments below):
+#   * a2d headers      -> fetched by the `a2d` task from GitHub into ../a2d
+#   * MSVC on Windows  -> must be installed system-wide (VS Build Tools)
+#   * CUDA / cuDSS     -> optional `cuda` environment, linux-64 only
+# ---------------------------------------------------------------------------
+
+[workspace]
+name = "amigo"
+version = "0.0.1"
+description = "A friendly library for multidisciplinary analysis and optimization"
+channels = ["conda-forge"]
+# CI only tests Apple Silicon. To add osx-64, copy each osx-arm64 block below,
+# add "osx-64" here, and re-run `pixi lock`.
+platforms = ["linux-64", "osx-arm64", "win-64"]
+
+# ---------------------------------------------------------------------------
+# Runtime python dependencies
+# ---------------------------------------------------------------------------
+[dependencies]
+python = ">=3.9,<3.14"
+numpy = "*"
+scipy = "*"
+matplotlib = "*"
+networkx = "*"
+tabulate = "*"
+pyvis = "*"
+icecream = "*"
+setuptools = "*"
+pip = "*"
+
+[pypi-dependencies]
+# niceplots is only published on PyPI.
+niceplots = "*"
+
+# ---------------------------------------------------------------------------
+# Build toolchain: CMake / scikit-build-core / pybind11 / C++ compiler.
+#
+# NOTE: these are *also* runtime dependencies -- `model.build_module()` shells
+# out to `cmake` and compiles the generated module at run time.
+# ---------------------------------------------------------------------------
+[feature.build.dependencies]
+cmake = ">=3.25"
+ninja = "*"
+scikit-build-core = ">=0.7"
+pybind11 = ">=2.12"
+
+[feature.build.target.linux-64.dependencies]
+cxx-compiler = "*"          # gxx_linux-64 + binutils
+make = "*"
+[feature.build.target.osx-arm64.dependencies]
+cxx-compiler = "*"
+llvm-openmp = "*"
+make = "*"
+
+# On win-64 the C++ compiler is MSVC and must be installed system-wide
+# (Visual Studio 2019/2022 or the standalone Build Tools). Conda's
+# `vs2022_win-64` package only *activates* an existing installation, so it is
+# deliberately not listed here.
+
+# ---------------------------------------------------------------------------
+# MPI: OpenMPI on Unix, MS-MPI on Windows. mpi4py is needed at build time (its
+# headers are included by amigo/amigo.cpp) and at run time.
+# ---------------------------------------------------------------------------
+[feature.mpi.dependencies]
+mpi4py = ">=3.1"
+
+[feature.mpi.target.linux-64.dependencies]
+openmpi = "*"
+[feature.mpi.target.osx-arm64.dependencies]
+openmpi = "*"
+
+[feature.mpi.target.win-64.dependencies]
+msmpi = "*"
+
+# conda-forge's msmpi activation script sets these from `%PREFIX%`, which is
+# only defined during a conda *build* -- under pixi it expands to nothing and
+# CMake's FindMPI ends up with a bogus "\Library\include". Override them here
+# (forward slashes, so CMake does not eat the backslashes as escapes).
+[feature.mpi.target.win-64.activation]
+scripts = ["scripts/pixi-activate.bat"]
+
+# ---------------------------------------------------------------------------
+# BLAS / LAPACK. OpenBLAS on Unix; MKL on Windows, because CMakeLists.txt
+# auto-detects `<sys.prefix>/Library/lib/mkl_rt.lib` there.
+# ---------------------------------------------------------------------------
+[feature.blas.target.linux-64.dependencies]
+libopenblas = "*"
+liblapack = "*"
+[feature.blas.target.osx-arm64.dependencies]
+libopenblas = "*"
+liblapack = "*"
+
+[feature.blas.target.win-64.dependencies]
+mkl = "*"
+mkl-devel = "*"             # provides mkl_rt.lib for the CMake auto-detect
+
+# ---------------------------------------------------------------------------
+# Sparse: METIS (build time, large performance win) and MUMPS (loaded at run
+# time via ctypes by amigo.algorithm.solvers.mumps_solver).
+#
+# MUMPS comes from conda-forge instead of a hand-built coin-or/ThirdParty-Mumps
+# tree; `mumps-seq` matches the sequential MPI (comm_fortran = -987654) the
+# solver asks for.
+# ---------------------------------------------------------------------------
+[feature.sparse.dependencies]
+metis = "*"
+
+[feature.sparse.target.linux-64.dependencies]
+mumps-seq = "*"
+[feature.sparse.target.osx-arm64.dependencies]
+mumps-seq = "*"
+
+# win-64: no MUMPS here -- the Windows CI job skips it too. If you build
+# coin-or/ThirdParty-Mumps under MSYS2, the loader finds it in
+# ~/mumps-coinor/bin, or in %CONDA_PREFIX%\Library\bin if you drop the DLL
+# there.
+
+# METIS_ROOT is picked up by cmake/Modules/FindMETIS.cmake, so METIS needs no
+# -D flags on the command line. MUMPS_LIB_DIR is searched first by the ctypes
+# loader in amigo.algorithm.solvers.mumps_solver.
+[feature.sparse.target.linux-64.activation.env]
+METIS_ROOT = "$CONDA_PREFIX"
+MUMPS_LIB_DIR = "$CONDA_PREFIX/lib"
+
+[feature.sparse.target.osx-arm64.activation.env]
+METIS_ROOT = "$CONDA_PREFIX"
+MUMPS_LIB_DIR = "$CONDA_PREFIX/lib"
+
+
+# ---------------------------------------------------------------------------
+# Development / test / lint extras
+# ---------------------------------------------------------------------------
+[feature.dev.dependencies]
+pytest = "*"
+smt = "*"
+black = ">=25.1.0"
+pre-commit = ">=3.5.0"
+git = "*"
+
+[feature.openmdao.dependencies]
+openmdao = ">=3.29"
+
+# ---------------------------------------------------------------------------
+# Optional CUDA / cuDSS build (linux-64 only).
+# cuDSS lives on the nvidia channel; drop `libcudss-dev` and build with
+# -DAMIGO_ENABLE_CUDSS=OFF if you do not want it.
+# ---------------------------------------------------------------------------
+[feature.cuda]
+platforms = ["linux-64"]
+channels = ["nvidia", "conda-forge"]
+
+# (deprecation warning in newer pixi; the table form is what 0.72 accepts)
+[feature.cuda.system-requirements]
+cuda = "12.0"
+
+[feature.cuda.dependencies]
+cuda-toolkit = "12.*"
+cuda-nvcc = "12.*"
+libcudss-dev = "*"
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+[environments]
+default = ["build", "mpi", "blas", "sparse"]
+dev = ["build", "mpi", "blas", "sparse", "dev", "openmdao"]
+cuda = ["build", "mpi", "blas", "sparse", "dev", "cuda"]
+
+# ---------------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------------
+[tasks]
+# a2d is a header-only sibling checkout that CMakeLists.txt expects at ../a2d.
+a2d = "python -c \"import os, subprocess; p = os.path.join('..', 'a2d'); os.path.isdir(p) or subprocess.check_call(['git', 'clone', '--depth', '1', 'https://github.com/smdogroup/a2d.git', p])\""
+
+test = { cmd = "pytest tests/ -v", depends-on = ["install-amigo"] }
+lint = "black --check ."
+format = "black ."
+clean = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in glob.glob('build*') + glob.glob('_skbuild') + glob.glob('**/__pycache__', recursive=True)]\""
+
+# --- editable installs, one per platform (paths and flags differ) ----------
+
+[target.linux-64.tasks.install-amigo]
+depends-on = ["a2d"]
+cmd = "pip install --no-build-isolation -e . -v -Ccmake.args=-DAMIGO_ENABLE_OPENMP=ON -Ccmake.args=-DAMIGO_ENABLE_CUDA=OFF -Ccmake.args=-DAMIGO_ENABLE_METIS=ON"
+
+[target.osx-arm64.tasks.install-amigo]
+depends-on = ["a2d"]
+cmd = "pip install --no-build-isolation -e . -v -Ccmake.args=-DAMIGO_ENABLE_OPENMP=ON -Ccmake.args=-DAMIGO_ENABLE_CUDA=OFF -Ccmake.args=-DAMIGO_ENABLE_METIS=ON"
+
+# Windows: OpenMP off, to match the Windows CI job. MPI, BLAS and METIS are
+# all located through the environment (see the activation.env blocks above),
+# so no paths are passed on the command line -- CMake would treat the
+# backslashes in a Windows path as escape characters.
+[target.win-64.tasks.install-amigo]
+depends-on = ["a2d"]
+cmd = "pip install --no-build-isolation -e . -v -Ccmake.args=-DAMIGO_ENABLE_OPENMP=OFF -Ccmake.args=-DAMIGO_ENABLE_CUDA=OFF -Ccmake.args=-DAMIGO_ENABLE_METIS=ON"
+
+# CUDA + cuDSS build: `pixi run -e cuda install-amigo-cuda`
+[feature.cuda.activation.env]
+CUDSS_HOME = "$CONDA_PREFIX"
+
+[feature.cuda.tasks.install-amigo-cuda]
+depends-on = ["a2d"]
+cmd = "pip install --no-build-isolation -e . -v -Ccmake.args=-DAMIGO_ENABLE_OPENMP=ON -Ccmake.args=-DAMIGO_ENABLE_CUDA=ON -Ccmake.args=-DAMIGO_ENABLE_CUDSS=ON -Ccmake.args=-DCMAKE_CUDA_ARCHITECTURES=native -Ccmake.args=-DAMIGO_ENABLE_METIS=ON"

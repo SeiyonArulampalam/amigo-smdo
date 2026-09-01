@@ -50,6 +50,7 @@ include/amigo_include_paths.h
 venv/
 .venv/
 env/
+/.pixi/
 
 # Examples: only track .py files and data (csv, tracks/)
 /examples/**/*.h
@@ -73,6 +74,7 @@ env/
 *.out
 *.md
 !README.md
+!README_pixi.md
 !website/**/*.md
 
 # External dependencies
