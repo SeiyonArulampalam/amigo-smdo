@@ -218,6 +218,40 @@ class InteriorPointOptimizer {
   }
 
   /**
+   * @brief Warm-start initialization: project the primals with a small push
+   * and set mu-consistent bound duals z = min(mu/gap, zmax). Multipliers and
+   * slacks in vars are kept as given.
+   *
+   * @param mu The initial barrier parameter
+   * @param push The bound push fraction for the interior projection
+   * @param zmax The bound dual cap
+   * @param vars All of the optimization variables
+   */
+  void initialize_duals_warm(T mu, T push, T zmax,
+                             std::shared_ptr<OptVector<T>> vars) const {
+    T* xlam = vars->template get_solution_array<policy>();
+    T *zl, *zu;
+    vars->template get_bound_duals<policy>(&zl, &zu);
+
+    if constexpr (policy == ExecPolicy::SERIAL ||
+                  policy == ExecPolicy::OPENMP) {
+      detail::project_primals_into_interior(info, xlam, push, push);
+      detail::initialize_bound_duals_warm(mu, zmax, info, xlam, zl, zu);
+    }
+#ifdef AMIGO_USE_CUDA
+    else {
+      detail::project_primals_into_interior_cuda(info, xlam, push, push);
+      AMIGO_CHECK_CUDA(cudaGetLastError());
+      AMIGO_CHECK_CUDA(cudaDeviceSynchronize());
+
+      detail::initialize_bound_duals_warm_cuda(mu, zmax, info, xlam, zl, zu);
+      AMIGO_CHECK_CUDA(cudaGetLastError());
+      AMIGO_CHECK_CUDA(cudaDeviceSynchronize());
+    }
+#endif
+  }
+
+  /**
    * @brief Compute the negative of the primal-dual residuals based on the value
    * of the gradient and the optimizer state variables
    *
@@ -384,6 +418,30 @@ class InteriorPointOptimizer {
 #ifdef AMIGO_USE_CUDA
     else {
       detail::apply_step_cuda(ax, az, info, current, step, result_state);
+      AMIGO_CHECK_CUDA(cudaGetLastError());
+    }
+#endif
+  }
+
+  /**
+   * @brief Clip the bound duals into [mu/(kappa*gap), kappa*mu/gap]
+   *
+   * @param mu The barrier parameter
+   * @param kappa The kappa_Sigma safeguard factor
+   * @param vars The values of the optimization variables
+   */
+  void correct_bound_multipliers(T mu, T kappa,
+                                 std::shared_ptr<OptVector<T>> vars) const {
+    detail::OptState<T> current =
+        detail::OptState<T>::template make<policy>(vars);
+
+    if constexpr (policy == ExecPolicy::SERIAL ||
+                  policy == ExecPolicy::OPENMP) {
+      detail::correct_bound_multipliers(mu, kappa, info, current);
+    }
+#ifdef AMIGO_USE_CUDA
+    else {
+      detail::correct_bound_multipliers_cuda(mu, kappa, info, current);
       AMIGO_CHECK_CUDA(cudaGetLastError());
     }
 #endif
@@ -656,7 +714,7 @@ class InteriorPointOptimizer {
   }
 
   // Relax bounds by bound_relax_factor (default 1e-8).
-  // Must be called before initialize_multipliers_and_slacks.
+  // Repeated calls relax from the original bounds and never compound
   void relax_bounds(T factor = 1e-8, T constr_viol_tol = 1e-4) {
     if (factor <= 0) return;
     lbx_relaxed =
@@ -664,12 +722,17 @@ class InteriorPointOptimizer {
     ubx_relaxed =
         std::make_shared<Vector<T>>(num_primals, 0, ubx->get_memory_location());
 
-    T* lb_buf = lbx_relaxed->template get_array<policy>();
-    T* ub_buf = ubx_relaxed->template get_array<policy>();
-    detail::relax_bounds(info, lb_buf, ub_buf, factor, constr_viol_tol);
+    detail::OptProblemInfo<T> host_info = info;
+    host_info.lbx = lbx->template get_array<ExecPolicy::SERIAL>();
+    host_info.ubx = ubx->template get_array<ExecPolicy::SERIAL>();
+    T* lb_buf = lbx_relaxed->template get_array<ExecPolicy::SERIAL>();
+    T* ub_buf = ubx_relaxed->template get_array<ExecPolicy::SERIAL>();
+    detail::relax_bounds(host_info, lb_buf, ub_buf, factor, constr_viol_tol);
 
     lbx_relaxed->copy_host_to_device();
     ubx_relaxed->copy_host_to_device();
+    info.lbx = lbx_relaxed->template get_array<policy>();
+    info.ubx = ubx_relaxed->template get_array<policy>();
   }
 
  private:

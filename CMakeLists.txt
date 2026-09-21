@@ -78,8 +78,9 @@ if(AMIGO_ENABLE_CUDA)
         INTERFACE_INCLUDE_DIRECTORIES "${CUDSS_INCLUDE_DIR}"
       )
     else()
-      message(WARNING "cuDSS requested but not found — disabling cuDSS.")
-      set(AMIGO_ENABLE_CUDSS OFF)
+      # A silent fallback builds the cusolver QR backend, which reports no
+      # inertia. Fail loudly instead: set CUDSS_HOME to the cuDSS install.
+      message(FATAL_ERROR "cuDSS requested but not found (CUDSS_HOME='${CUDSS_HOME}')")
     endif()
   endif()
 endif()
@@ -125,6 +126,10 @@ if(AMIGO_ENABLE_OPENMP)
   find_package(OpenMP)
   if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP found: ${OpenMP_CXX_VERSION}")
+    # MSVC needs the LLVM OpenMP runtime for task/taskwait
+    if(MSVC)
+      add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-openmp:llvm>)
+    endif()
   else()
     message(WARNING "OpenMP requested but not found; disabling")
     set(AMIGO_ENABLE_OPENMP OFF)
@@ -163,10 +168,11 @@ if(AMIGO_ENABLE_METIS)
   if(METIS_FOUND)
     message(STATUS "METIS found: enabling AMIGO_USE_METIS")
   else()
-    message(STATUS
-      "METIS not found: disabling METIS support. Set METIS_ROOT (or the "
-      "METIS_ROOT environment variable) to a METIS installation prefix, or "
-      "set METIS_INCLUDE_DIR and METIS_LIBRARY directly, to enable it.")
+    message(WARNING
+      "METIS not found: the DEFAULT ordering falls back to AMD, which is much "
+      "slower on large models. Set METIS_ROOT (or the METIS_ROOT environment "
+      "variable) to a METIS installation prefix, or set METIS_INCLUDE_DIR and "
+      "METIS_LIBRARY directly, to enable it.")
     set(AMIGO_ENABLE_METIS OFF)
   endif()
 endif()
@@ -255,7 +261,7 @@ target_include_directories(headers INTERFACE
 
 # If Cuda is enabled, then we need to build the backend files
 if(AMIGO_ENABLE_CUDA)
-  add_library(backend 
+  add_library(backend
     src/csr_factor_cuda.cu
     src/csr_matrix_backend.cu
     src/interior_point_backend.cu

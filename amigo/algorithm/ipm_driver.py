@@ -7,6 +7,8 @@ a Newton direction, runs a line search, and handles step acceptance
 or feasibility restoration.
 """
 
+import gc
+import time
 import warnings
 import numpy as np
 
@@ -19,15 +21,25 @@ from ..utils import tocsr
 
 # Optimizer imports from algorithm classes
 from .barrier_strategy import make_barrier_strategy
-from .convergence_check import ConvergenceCheck, CONTINUE
+from .convergence_check import (
+    ConvergenceCheck,
+    CONTINUE,
+    CONVERGED_ACCEPTABLE,
+    DIVERGED,
+    RESTORATION_NEEDED,
+    LOCALLY_INFEASIBLE,
+)
 from .default_options import get_default_options
 from .evaluator import Evaluator
-from .feasibility_restoration import FeasibilityRestoration
-from .iterate_initialization import SlackInitializer
+from .globalization import FeasibilityRestoration, make_line_search
+from .initialization import (
+    FeasibilityPresolve,
+    IterateCenterer,
+    MultiplierInitializer,
+    NLPScaling,
+)
 from .iteration_logger import OptimizationLogger
 from .ipm_state import InteriorPointState
-from .line_search import make_line_search
-from .multiplier_initialization import MultiplierInitializer
 from .newton_direction import NewtonStep
 from .solvers import InertiaCorrector, make_solver
 
@@ -129,8 +141,15 @@ class Optimizer:
         # Check and normalize the options dictionary for internal use
         options = self.get_options(options=options)
 
-        # TODO: Where should this go? It should only be called one time.
-        # self.optimizer.relax_bounds(1e-8, options["constr_viol_tol"])
+        # The logger clock starts after the solver is built, so time setup here
+        _t_optimize_start = time.perf_counter()
+        _solver_build_time = 0.0
+
+        # Relax bounds from the originals so repeated calls do not compound
+        if options["bound_relax_factor"] > 0.0:
+            self.optimizer.relax_bounds(
+                options["bound_relax_factor"], options["constr_viol_tol"]
+            )
 
         # Continuation control object, if any
         continuation_control = options["continuation_control"]
@@ -139,11 +158,20 @@ class Optimizer:
         self.evaluator = Evaluator(self.problem, self.optimizer)
 
         # The interior point state object contains information about the design point, the
-        # gradient and the Hessian of the Lagrangian.
+        # gradient and the Hessian of the Lagrangian
         self.state = InteriorPointState(self.x, options, self.problem, self.optimizer)
 
-        # Create the solver depending on options
-        self.solver = make_solver(options, self.state)
+        # Warm start: begin at a barrier consistent with the near-optimal point
+        if options["warm_start"]:
+            self.state.mu = options["warm_start_mu_init"]
+
+        # Break the previous call's reference cycles to release the C++ payloads
+        gc.collect()
+
+        # No solver reuse across calls, and this runs the symbolic factorization
+        _t_solver_build = time.perf_counter()
+        self.solver = make_solver(options, self.state, self.problem, self.optimizer)
+        _solver_build_time = time.perf_counter() - _t_solver_build
 
         # The inertia correction
         inertia_corrector = InertiaCorrector(options, self.problem, self.optimizer)
@@ -154,8 +182,10 @@ class Optimizer:
         # Allocate the Newton step
         newton_step = NewtonStep(options, self.problem, self.optimizer)
 
+        last_restoration_iter = 0
         # Feasibility restoration phase algorithm
         feasible_resto = FeasibilityRestoration(options, self.problem, self.optimizer)
+        restoration_count = 0
 
         # Initialize the barrier strategy correction algorithm
         barrier_strategy = make_barrier_strategy(options, self.problem, self.optimizer)
@@ -166,15 +196,26 @@ class Optimizer:
         # Initialize the logger. The logger takes in additional objects that may
         # provide logging info via "obj.get_log_info()"
         objs = [line_search, inertia_corrector]
+        if hasattr(self.solver, "add_log_info"):
+            objs.append(self.solver)
         logger = OptimizationLogger(objs, options, self.problem, self.optimizer)
+
+        # pre_loop_time precedes the logger clock, solver_build_time is within it
+        logger.opt_data["solver_build_time"] = _solver_build_time
+        logger.opt_data["pre_loop_time"] = time.perf_counter() - _t_optimize_start
 
         # Set the initial point
         self.x.copy(self.x_init)
 
-        # Initialize the dual and slack variable values. This utilizes the solver object
-        # to find initial values of the dual variables.
-        slack_init = SlackInitializer(options, self.model, self.problem, self.optimizer)
-        slack_init.initialize_slacks(self.evaluator, self.state)
+        # Scale at the start point so the rest of the algorithm runs scaled
+        self.nlp_scaling = NLPScaling(options, self.problem, self.optimizer)
+        self.nlp_scaling.compute(self.evaluator, self.state)
+
+        # Center the iterate on the central path at the initial barrier
+        centerer = IterateCenterer(options, self.model, self.problem, self.optimizer)
+        centerer.center(
+            self.evaluator, self.state, keep_multipliers=options["warm_start"]
+        )
 
         # Initialize the multipliers
         multiplier_init = MultiplierInitializer(
@@ -185,6 +226,51 @@ class Optimizer:
         # Set the initial status
         status = CONTINUE
 
+        def attempt_restoration(augment_filter):
+            """Run the restoration phase and repair the resume state.
+
+            Returns the RestorationInfo, or None when restoration is
+            disabled or its budget is exhausted. The filter is augmented
+            with the failure point only on line-search failures: the
+            NaN/divergence verdicts may carry non-finite phi values.
+            """
+            nonlocal restoration_count, last_restoration_iter
+            if not (
+                options["feasibility_restoration"]
+                and restoration_count < options["max_restorations"]
+            ):
+                return None
+            if augment_filter:
+                line_search.augment_filter(
+                    self.state.barrier_objective,
+                    self.state.con_infeasibility,
+                )
+            resto_info = feasible_resto.restore(
+                self.solver, self.evaluator, self.state, line_search
+            )
+            if resto_info.success:
+                restoration_count += 1
+                last_restoration_iter = self.state.iter
+                line_search.reset_after_restoration()
+                check.reset_step_watchdog(self.state)
+                # Least-squares multipliers at the restored point
+                multiplier_init.compute_least_squares_multipliers(
+                    self.evaluator, self.solver, self.state
+                )
+            return resto_info
+
+        # Optional feasible and centered starting point
+        presolve = FeasibilityPresolve(options)
+        presolve.run(
+            feasible_resto,
+            multiplier_init,
+            centerer,
+            self.solver,
+            self.evaluator,
+            self.state,
+            line_search,
+        )
+
         # Initialize the barrier strategy prior to optimization
         barrier_strategy.initialize(self.evaluator, self.state)
 
@@ -192,6 +278,16 @@ class Optimizer:
         for counter in range(max_iters):
             # Update the iteration counter
             self.state.iter = counter
+
+            # Steady progress refills the restoration budget
+            refresh = options["restoration_budget_refresh_iters"]
+            if (
+                refresh > 0
+                and restoration_count > 0
+                and counter - last_restoration_iter >= refresh
+            ):
+                restoration_count -= 1
+                last_restoration_iter = counter
 
             # Evaluate the objective and barrier function
             self.evaluator.evaluate_objective_and_infeasibility(self.state)
@@ -206,11 +302,18 @@ class Optimizer:
             # internal objects within the optimizer
             logger.log_iteration(status, self.state)
 
-            # Break if the check indicates we shouldn't continue
+            # Restoration-needed and diverging states attempt restoration first
             if status != CONTINUE:
+                if status in (RESTORATION_NEEDED, DIVERGED):
+                    resto_info = attempt_restoration(augment_filter=False)
+                    if resto_info is not None and resto_info.success:
+                        continue
+                    if resto_info is not None and resto_info.infeasible:
+                        status = LOCALLY_INFEASIBLE
+                        logger.log_iteration(status, self.state)
                 break
 
-            # Callback for the continuation control.
+            # Callback for the continuation control
             if continuation_control is not None:
                 continuation_control(self.state)
 
@@ -218,10 +321,10 @@ class Optimizer:
             barrier_info = barrier_strategy.update_barrier(self.evaluator, self.state)
 
             # Let the line search object determine if a reset is appropriate based on the barrier parameter
-            # update. For instance, this call may reset the filter.
+            # update. For instance, this call may reset the filter
             line_search.reset_on_new_barrier(self.state, barrier_info)
 
-            # Factor the KKT system considering the inertia.
+            # Factor the KKT system considering the inertia
             # TODO: Implement a inertia info class
             factor_ok = inertia_corrector.factor_for_inertia(
                 self.solver, self.evaluator, self.state
@@ -234,7 +337,7 @@ class Optimizer:
                 newton_step.compute_step(self.solver, self.evaluator, self.state)
 
                 # Using the same factorization and solver, assess whether a correction step is required
-                # and compute it.
+                # and compute it
                 barrier_strategy.add_step_correction(
                     self.solver, self.evaluator, self.state
                 )
@@ -252,15 +355,36 @@ class Optimizer:
                 if line_search_info.success:
                     do_feasible_resto = False
 
+                    # kappa_Sigma safeguard: clip bound duals toward mu/gap
+                    kappa_sigma = options["kappa_sigma"]
+                    if kappa_sigma > 0.0:
+                        self.optimizer.correct_bound_multipliers(
+                            self.state.mu, kappa_sigma, self.state.current
+                        )
+
                     # Refresh multipliers near feasibility to prevent dual divergence
                     multiplier_init.recompute_multipliers(
                         self.evaluator, self.solver, self.state
                     )
 
-            # If the line search was not successful, perform feasibility restoration
+                    # Steps accepted at near-zero alpha while still infeasible
+                    if check.test_small_alpha_stall(self.state):
+                        do_feasible_resto = True
+
+            # On failure, filter the point and restore feasibility, else terminate
             if do_feasible_resto:
-                warnings.warn("Feasibility restoration phase not implemented")
-                # feasible_resto.restoration_phase(solver, self.evaluator, self.state)
+                resto_info = attempt_restoration(augment_filter=True)
+                if resto_info is not None and resto_info.success:
+                    continue
+                # Keep an acceptable point when restoration fails
+                if check.point_acceptable(self.evaluator, self.state):
+                    status = CONVERGED_ACCEPTABLE
+                elif resto_info is not None and resto_info.infeasible:
+                    status = LOCALLY_INFEASIBLE
+                else:
+                    status = RESTORATION_NEEDED
+                logger.log_iteration(status, self.state)
+                break
 
         else:
             # The optimization for loop completed normally, so we did not converge

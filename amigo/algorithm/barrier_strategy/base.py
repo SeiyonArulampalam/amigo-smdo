@@ -1,13 +1,8 @@
 """Base class for barrier-parameter strategies.
 
-A BarrierStrategy owns the per-iteration barrier update:
-  - decide the new mu (heuristic rule or QF oracle)
-  - factorize the KKT system at the new mu
-  - compute the Newton direction
-
-Every concrete strategy reads and writes self.opt.barrier_param and uses
-self.opt.{vars, grad, res, px, update, temp, optimizer, solver} plus
-helpers on self.opt (_factorize_kkt, _find_direction, etc.).
+A BarrierStrategy owns the per-iteration barrier update: pick the next mu
+and apply it with set_mu, which also refreshes the coupled
+fraction-to-boundary tau.
 """
 
 from abc import ABC, abstractmethod
@@ -15,6 +10,8 @@ from abc import ABC, abstractmethod
 
 class BarrierInfo:
     new_barrier: bool = False
+    # The filter resets on new subproblems only, not adaptive retargets
+    new_subproblem: bool = False
     mu_new: float = 0.0
     mu_old: float = 0.0
 
@@ -22,6 +19,12 @@ class BarrierInfo:
 class BarrierStrategy(ABC):
     def __init__(self, options={}):
         self.options = options
+
+    def set_mu(self, state, mu):
+        """Set the barrier parameter and the coupled fraction-to-boundary."""
+        state.mu = mu
+        if self.options["adaptive_tau"]:
+            state.tau = max(self.options["tau_min"], 1.0 - mu)
 
     def initialize(self, evaluator, state):
         """Initialize the barrier strategy from the initial point"""
@@ -33,7 +36,7 @@ class BarrierStrategy(ABC):
         pass
 
     def add_step_correction(self, solver, evalutor, state):
-        """Add the correction to the step - relevant for Mehrotra P/C steps"""
+        """Add the correction to the step, used by predictor-corrector steps"""
         pass
 
     def update_after_line_search(self, info, evaluator, state):

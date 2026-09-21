@@ -1,10 +1,10 @@
-"""Classical barrier strategy: LOQO-style heuristic."""
+"""Classical barrier strategy driven by a complementarity heuristic."""
 
 from .base import BarrierStrategy, BarrierInfo
 
 
 def loqo_heuristic(xi, complementarity, gamma, r, mu_floor=1e-12):
-    """LOQO-style barrier parameter: mu = gamma * heuristic_factor * comp."""
+    """Heuristic barrier parameter: mu = gamma * heuristic_factor * comp."""
     if xi > 1e-10:
         term = (1 - r) * (1 - xi) / xi
         heuristic_factor = min(term, 2.0) ** 3
@@ -44,8 +44,7 @@ class HeuristicBarrierStrategy(BarrierStrategy):
             info.mu_new = mu_new
             info.mu_old = state.mu
 
-            # Update the barrier parameter
-            state.mu = mu_new
+            self.set_mu(state, mu_new)
 
             # Invalidate everything but the gradient and Hessian
             state.invalidate(grad=False, hess=False)

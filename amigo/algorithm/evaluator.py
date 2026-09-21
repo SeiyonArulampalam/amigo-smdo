@@ -1,6 +1,3 @@
-import numpy as np
-
-
 class Evaluator:
     def __init__(self, problem, optimizer):
         self.problem = problem
@@ -79,7 +76,7 @@ class Evaluator:
         return fobj, barrier, infeas
 
     def evaluate_directional_derivative(self, state):
-        """Evaluate the directional derivative at the candidate point"""
+        """Directional derivative of the barrier objective along the primal step."""
         if not state.residual_current:
             self.evaluate_residual(state)
         if not state.step_current:
@@ -95,8 +92,11 @@ class Evaluator:
         con_indices = self.problem.get_constraint_indices()
         xtmp.fill_at(con_indices, 0.0)
 
-        # Evaluate the gradient of the objective function alone at the current point
-        self.problem.gradient(1.0, xtmp, gtmp)
+        # Scaled objective gradient matching the barrier objective
+        self.problem.gradient(state.obj_scale, xtmp, gtmp)
+
+        # Drop the multiplier rows from the dot product
+        gtmp.fill_at(con_indices, 0.0)
 
         update = state.step.get_solution()
         deriv = self.problem.dot(update, gtmp)
@@ -168,8 +168,10 @@ class Evaluator:
         return s_d, s_c
 
     def evaluate_diagonal(self, state):
-        """Evaluate the diagonal entries"""
-        self.optimizer.compute_diagonal(state.current, state.diagonal)
+        """Evaluate the barrier diagonal entries at the current point"""
+        if not state.diagonal_current:
+            self.optimizer.compute_diagonal(state.current, state.diagonal)
+            state.diagonal_current = True
 
     def evaluate_complementarity(self, state):
         comp, xi = self.optimizer.compute_complementarity(state.current)

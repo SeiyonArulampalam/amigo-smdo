@@ -29,15 +29,14 @@ class PardisoSolver(DirectSparseSolver):
         # mtype=-2: real symmetric indefinite
         self.pardiso = PyPardisoSolver(mtype=-2)
 
-        # Pre-compute upper-triangle mask (sparsity structure is fixed).
-        # For each entry in the full CSR, mark True if col >= row.
+        # Pre-compute the upper-triangle mask, the structure is fixed
         upper_mask = np.empty(self.nnz, dtype=bool)
         for i in range(self.nrows):
             start, end = self.rowp[i], self.rowp[i + 1]
             upper_mask[start:end] = self.cols[start:end] >= i
         self._upper_mask = upper_mask
 
-        # Build upper-triangle CSR structure once (indices/indptr are fixed).
+        # Build upper-triangle CSR structure once (indices/indptr are fixed)
         upper_cols = self.cols[upper_mask]
         upper_indptr = np.zeros(self.nrows + 1, dtype=self.rowp.dtype)
         for i in range(self.nrows):
@@ -47,9 +46,9 @@ class PardisoSolver(DirectSparseSolver):
             )
         upper_data = np.zeros(len(upper_cols))
 
-        # Persistent CSR matrix — same object passed to pardiso every time
+        # Persistent CSR matrix, the same object goes to pardiso every time
         # so symbolic analysis (phase 11) runs once, then only numerical
-        # factorization (phase 22) on subsequent calls.
+        # factorization (phase 22) on subsequent calls
         self._matrix = csr_matrix(
             (upper_data, upper_cols.copy(), upper_indptr.copy()),
             shape=(self.nrows, self.ncols),

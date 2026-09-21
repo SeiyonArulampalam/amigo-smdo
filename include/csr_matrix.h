@@ -23,11 +23,14 @@ class SerialCSRMatBackend {
   void allocate(int nrows_, int ncols_, int nnz_) {}
   void copy_pattern_host_to_device(const int* rowp, const int* cols,
                                    const int* diag) {}
+  void copy_data_host_to_device(const T* data) {}
   void copy_data_device_to_host(T* data) {}
   void copy_data_device_to_host(int ext_offset, int ext_size, T* ext_data) {}
   void zero() {}
   void set_values(int n, const int* idx, const T value) {}
   void add_diagonal(const T* values) {}
+  void row_maxabs(T* out) {}
+  void scale_symmetric(const T* d) {}
   void get_device_data(int* rowp[], int* cols[], T* data[]) {
     if (rowp) {
       *rowp = nullptr;
@@ -543,6 +546,52 @@ class CSRMat {
   }
 
   /**
+   * @brief Row-wise infinity norm: out[r] = max_k |A[r,k]|.
+   *
+   * @param out The output vector of per-row max-abs values
+   */
+  template <ExecPolicy policy>
+  void row_maxabs(std::shared_ptr<Vector<T>> out) {
+    if constexpr (policy == ExecPolicy::SERIAL ||
+                  policy == ExecPolicy::OPENMP) {
+      T* o = out->get_array();
+      for (int row = 0; row < nrows; row++) {
+        T m = 0.0;
+        for (int jp = rowp[row]; jp < rowp[row + 1]; jp++) {
+          T a = data[jp] < 0 ? -data[jp] : data[jp];
+          if (a > m) {
+            m = a;
+          }
+        }
+        o[row] = m;
+      }
+    } else if constexpr (policy == ExecPolicy::CUDA) {
+      backend.row_maxabs(out->get_device_array());
+    }
+  }
+
+  /**
+   * @brief Symmetric diagonal scaling in place: A[r,c] *= d[r] * d[c].
+   *
+   * @param d The scaling vector (length nrows = ncols)
+   */
+  template <ExecPolicy policy>
+  void scale_symmetric(const std::shared_ptr<Vector<T>>& d) {
+    if constexpr (policy == ExecPolicy::SERIAL ||
+                  policy == ExecPolicy::OPENMP) {
+      const T* dv = d->get_array();
+      for (int row = 0; row < nrows; row++) {
+        T dr = dv[row];
+        for (int jp = rowp[row]; jp < rowp[row + 1]; jp++) {
+          data[jp] *= dr * dv[cols[jp]];
+        }
+      }
+    } else if constexpr (policy == ExecPolicy::CUDA) {
+      backend.scale_symmetric(d->get_device_array());
+    }
+  }
+
+  /**
    * @brief Add a row to the matrix
    *
    * @tparam ArrayType Type of the array that stores the data
@@ -723,6 +772,12 @@ class CSRMat {
   void copy_pattern_host_to_device() {
     backend.copy_pattern_host_to_device(rowp, cols, diag);
   }
+
+  /**
+   * @brief Copy host data values to the device (e.g. a matrix assembled on the
+   * host and handed to a device solver such as cuDSS).
+   */
+  void copy_data_host_to_device() { backend.copy_data_host_to_device(data); }
 
   /**
    * @brief Copy data computed on the device back to the host

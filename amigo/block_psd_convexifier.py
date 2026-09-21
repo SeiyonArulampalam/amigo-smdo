@@ -1,98 +1,9 @@
-"""Null-Space BISC: block PSD convexification on the primal Schur complement.
+"""Block PSD convexification of the Hessian.
 
-Operates on S_p = W + Sigma + J^T |D^{-1}| J, the exact primal Schur complement
-after eliminating constraints from the KKT system.
-
-Theory:
-  KKT inertia = (n, m, 0) iff S_p > 0 and D < 0 (exact characterization).
-  S_p is the theoretically correct matrix -- not W+Sigma, not an approximation.
-
-  Null-space interpretation (without computing Z):
-    - Null-space directions (JZ=0): Z^T S_p Z = Z^T(W+Sigma)Z (Lagrangian curvature).
-      Modified by BISC if negative (nonconvex dynamics).
-    - Range-space directions (J^T v): dominated by J^T|D^{-1}|J (~O(1) for slacks).
-      Already large positive, untouched by BISC.
-  S_p automatically separates null-space from range-space contributions.
-
-OCP structure:
-  For OCPs, J has block-bidiagonal structure (each constraint couples at most
-  adjacent time steps). Therefore J^T D^{-1} J is block-tridiagonal, and S_p
-  has the SAME block-tridiagonal structure as W.
-
-Algorithm:
-  1. Model-based block detection (falls back to BFS on sparsity).
-     Block-tridiagonal structure validated at construction time; chains with
-     non-adjacent coupling are demoted to independent small blocks.
-  2. Schur complement propagation on S_p (backward sweep default):
-     R_k = S_p[k,k] - C_k R~_{k+1}^{-1} C_k^T  (Riccati-natural direction).
-     CONVEXIFY-style selective projection: within each block, identify
-     "local" variables (no coupling to adjacent level) and "coupled" variables.
-     Only the Schur complement of local variables (after eliminating coupled)
-     is projected to PD. Coupled curvature redistributes naturally through the
-     sweep, minimizing total ||E||_F. Falls back to full block projection when
-     the coupled sub-block is not PD.
-     Eigenvalue modification: "reflect" -> max(|lambda|, eps),
-                              "clip"    -> max(lambda, eps).
-     Condition-based adaptive eps: eps = max(barrier_eps, max_eig / kappa_max)
-     caps the modified block condition number.
-  3. Hub variables: dense bordered Schur complement with full spectral
-     modification (eigendecomp + reflect/clip), consistent with chain/small
-     blocks. No uniform diagonal shift.
-
-Write-back self-consistency:
-  CSR[k,k] = R~_k + Gamma - Sigma - S_schur.
-  PARDISO adds Sigma (factor_from_host) and S_schur (constraint elimination),
-  recovering R~_k + Gamma. Chain elimination subtracts Gamma -> gets R~_k >= eps.
-
-Fill-in compensation (Gershgorin per-row bound):
-  When CSR lacks off-diagonal entries for a modified block, the write-back
-  is incomplete. Let E_missing = E_k restricted to missing entries. Per-row
-  Gershgorin compensation: comp_i = sum_{j != i} |E_missing[i,j]| ensures
-  D - E_missing is diagonally dominant (PSD). Tighter than uniform Weyl
-  bound (||E_missing||_F on every entry) by up to sqrt(d).
-
-Convergence guarantees:
-  Theorem (Correct Inertia): After BISC, the modified KKT system has inertia
-  (n, m, 0). Proof: Schur propagation with spectral modification ensures each
-  R~_k >= eps*I > 0. By Sylvester's inertia law, S_p_modified is PD. By
-  Haynsworth's inertia additivity, KKT inertia = (n, m, 0).
-
-  Theorem (Asymptotic Vanishing): Under SOSC and strict complementarity (SC),
-  there exists mu* > 0 such that for all barrier parameters mu < mu*, S_p(mu)
-  is positive definite and no eigenvalue modification is needed.
-  Proof: At the solution (x*, lambda*, z*), SOSC gives Z^T W(x*,lambda*) Z > 0
-  (reduced Hessian PD on the null space of active constraints). SC ensures
-  Sigma(mu) = Z_l/(X-L) + Z_u/(U-X) converges to a finite PD matrix on
-  bound-active variables. The constraint Schur J^T|D^{-1}|J is PSD. Combined:
-  S_p(0) = W + lim Sigma + lim J^T|D^{-1}|J is PD on the primal space. By
-  continuity of eigenvalues, S_p(mu) remains PD in a neighborhood of mu=0.
-  Corollary: ||E(mu)||_F -> 0 as mu -> 0 under SOSC+SC.
-
-  Theorem (Superlinear Convergence): The BISC-modified IPM achieves superlinear
-  convergence under standard assumptions. Proof: ||E_k|| = O(mu_k) and mu_k -> 0
-  superlinearly, so the modification is asymptotically negligible.
-
-  CONVEXIFY Selective Projection: The selective projection (projecting only local
-  variables' Schur complement) produces a smaller total modification ||E||_F than
-  full-block projection while maintaining the same inertia guarantee. Under SOSC,
-  the selective projection is asymptotically optimal: it produces zero modification
-  when S_p is naturally PD, and minimal modification otherwise.
-
-  Comparison with prior work:
-  - Verschueren et al. (SIAM J. Optim. 2017): convexification for QP subproblems
-    in SQP, assuming known OCP (x,u) structure. Our method operates on the full
-    NLP-IPM primal Schur complement S_p, detects block structure automatically,
-    and handles hub variables and general sparsity.
-  - IPOPT (Wachter & Biegler 2006): uniform diagonal delta*I for inertia
-    correction. Our structured approach achieves ||E||_F << delta*n by
-    modifying only the indefinite eigenvalues of each block.
-
-  Properties:
-  - PSD: each R~_k >= eps by construction (Sylvester's law).
-  - No coupling floors: S_p gives slacks O(1) eigenvalues from J^T|D^{-1}|J.
-  - Mesh independence: O(N * d^3), d physics-determined.
-
-Single factorization, no inertia retry, no coupling floors, no mu-scaling.
+Detects block structure in the Hessian, modifies the eigenvalues of each
+block so the reduced curvature is positive definite, and writes the
+result back. Gives the KKT matrix the correct inertia without a uniform
+diagonal shift.
 """
 
 import numpy as np
@@ -111,15 +22,15 @@ def _modify_eigenvalues(evals, eps, mode):
     eps : float
         Minimum allowed eigenvalue (adaptive, typically O(mu)).
     mode : str
-        "reflect" : lambda~ = max(|lambda|, eps). Preserves curvature magnitude;
-                    a strongly negative eigenvalue becomes strongly positive.
+        "reflect" : lambda~ = max(|lambda|, eps). Preserves curvature
+                    magnitude, so a strongly negative eigenvalue becomes
+                    strongly positive.
                     Naturally adapts to the problem's curvature scale: the step
                     in direction v_i is O(1/|lambda_i|), preventing aggressive
                     steps in strongly nonconvex directions.
                     Convergence: ||E||_F <= 2*||S_p^-||_F -> 0 under SOSC.
         "clip"    : lambda~ = max(lambda, eps). Minimal Frobenius perturbation.
-                    Proven primal solution equivalence under SOSC
-                    (Verschueren et al., SIAM J. Optim. 2017).
+                    Proven primal solution equivalence under SOSC.
                     Can produce aggressive steps (O(1/eps)) in strongly
                     nonconvex directions, requiring more line search backtracking.
 
@@ -426,7 +337,7 @@ class BlockPSDConvexifier:
         # Validate block-tridiagonal structure for each chain.
         # Chains with non-adjacent coupling (W or constraint-mediated) cannot
         # use Schur propagation correctly. Try to fix periodic coupling by
-        # moving endpoint levels to hub; otherwise demote to small blocks.
+        # moving endpoint levels to hub, otherwise demote to small blocks.
         validated_chains = []
         for chain_i in self.bfs_chains:
             valid, viol_levels = _validate_chain_tridiagonal(
@@ -563,8 +474,9 @@ class BlockPSDConvexifier:
         # CONVEXIFY: pre-compute local/coupled variable partition per chain level.
         # In backward sweep, "coupled" vars at level k = those with nonzero columns
         # in C_{k-1} (coupling from level k-1 to k). These participate in Gamma
-        # propagation; their curvature redistributes naturally without projection.
-        # "Local" vars = zero columns in C_{k-1}; their Schur complement is projected.
+        # propagation, so their curvature redistributes without projection.
+        # "Local" vars are zero columns in C_{k-1}, and their Schur complement
+        # is projected.
         self._chain_local_idx = []
         self._chain_coupled_idx = []
         for ci, chain_i in enumerate(self.bfs_chains):
@@ -586,7 +498,7 @@ class BlockPSDConvexifier:
             self._chain_coupled_idx.append(coupled_idx)
 
         # Pre-compute CSR index map for dense hub block (n_hub x n_hub).
-        # Diagonal entries always exist; off-diagonal only if W couples hubs.
+        # Diagonal entries always exist, off-diagonal only if W couples hubs.
         n_h = len(self.hub_indices)
         self._hub_csr_map = np.full((n_h, n_h), -1, dtype=np.int64)
         for i, hub_i in enumerate(self.hub_indices):

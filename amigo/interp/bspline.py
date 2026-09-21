@@ -124,7 +124,7 @@ class BSpline:
 
         N = np.zeros((self.num_interp_points, self.k), dtype=float)
 
-        # Evaluate using the Cox–de Boor recursion for each point
+        # Evaluate using the Cox-de Boor recursion for each point
         for j in range(self.interp_points.size):
             i = span[j]
             # zeroth-degree basis
@@ -164,7 +164,7 @@ class BSpline:
 
         Nd = np.zeros((self.num_interp_points, self.k), dtype=float)
 
-        # Evaluate using the Cox–de Boor recursion for each point
+        # Evaluate using the Cox-de Boor recursion for each point
         for j in range(self.num_interp_points):
             i = span[j]
             x = interp_points_clamped[j]
@@ -187,7 +187,7 @@ class BSpline:
                     saved = left[d - r] * temp
                 ndu[d, d] = saved
 
-            # ders[0, :] are the basis values; ders[1, :] first deriv; ders[2, :] second, etc.
+            # ders[0, :] are the basis values, ders[1, :] the first derivative, and so on
             ders = np.zeros((deriv + 1, self.k), dtype=float)
             for r in range(self.k):
                 ders[0, r] = ndu[r, self.k - 1]

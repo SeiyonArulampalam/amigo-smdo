@@ -91,6 +91,9 @@ T vec_maxabs(int n, const T* d_ptr, int& index);
 template <typename T>
 T vec_abssum(int n, const T* d_ptr);
 
+template <typename T>
+void vec_multiply(int n, const T* d_x, T* d_ptr);
+
 }  // namespace detail
 
 // =========================================================================
@@ -118,6 +121,8 @@ class CudaVecBackend {
     }
     size = size_;
     AMIGO_CHECK_CUDA(cudaMalloc(&d_ptr, size * sizeof(T)));
+    // Match the host array's zero initialization
+    AMIGO_CHECK_CUDA(cudaMemset(d_ptr, 0, size * sizeof(T)));
   }
 
   void copy_host_to_device(const T* h_ptr) {
@@ -142,6 +147,12 @@ class CudaVecBackend {
   void add_scalar(T scalar) {
     if (size > 0) {
       detail::vec_add_scalar(size, scalar, d_ptr);
+    }
+  }
+
+  void multiply(const T* d_x) {
+    if (size > 0) {
+      detail::vec_multiply(size, d_x, d_ptr);
     }
   }
 

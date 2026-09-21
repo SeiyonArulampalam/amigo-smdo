@@ -1,10 +1,8 @@
 """Quality-function (adaptive) barrier strategy.
 
-Picks the next mu by either a Mehrotra predictor-corrector or a golden-
-section search on q_L(sigma).  Wraps this oracle in the adaptive-mu
-globalization from Nocedal & Wachter (2006): if the QF-picked mu stops
-making progress (by KKT error or obj-constr filter), fall back to a
-monotone decrease of mu until the subproblem is solved.
+Picks the next mu from a predictor-corrector estimate or a golden-section
+search on the quality function, falling back to a monotone decrease when
+the picked mu stops making progress.
 """
 
 import numpy as np
@@ -50,7 +48,7 @@ def _golden_section(f, a, b, sigma_tol, qf_tol, max_iters):
 
 
 class QualityFunctionBarrierStrategy(BarrierStrategy):
-    """Mehrotra PC / golden-section QF oracle with adaptive-mu globalization."""
+    """Quality-function oracle with adaptive-mu globalization."""
 
     def __init__(self, options, problem, optimizer):
         self.options = options
@@ -120,6 +118,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
                 self._remember_point(evaluator, state)
             else:
                 info.new_barrier = self._monotone_reduce(state)
+                info.new_subproblem = info.new_barrier
 
         if self.free_mode:
             info.new_barrier = True
@@ -128,6 +127,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
                 self._remember_point(evaluator, state)
             else:
                 info.new_barrier = self._enter_monotone_mode(evaluator, state)
+                info.new_subproblem = info.new_barrier
 
         info.mu_new = state.mu
 
@@ -142,15 +142,13 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
             mu_new = max(mu_new, self.mu_min, self._lower_safeguard(state))
             mu_new = min(mu_new, self.mu_max)
 
-            # Set the new barrier parameter
-            state.mu = mu_new
+            self.set_mu(state, mu_new)
 
             # Invalidate everything but the gradient, hessian and step
             state.invalidate(grad=False, hess=False, step=False)
 
         return
 
-    # def update_line_search_info(self, ctx):
     def update_after_line_search(self, info, evaluator, state):
         """If free mode rejects, fall back to monotone (unless never-monotone)."""
 
@@ -166,7 +164,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
             mu_candidate = max(mu_candidate, self._lower_safeguard(state), self.mu_min)
             mu_candidate = min(mu_candidate, self.mu_max)
 
-            state.mu = mu_candidate
+            self.set_mu(state, mu_candidate)
             self.free_mode = False
 
             self.monotone_mu = mu_candidate
@@ -197,23 +195,6 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
     def _monotone_reduce(self, state):
         """Monotone mu reduction when subproblem is solved."""
 
-        # relative_tol = self.options["barrier_progress_tol"]
-        # if state.kkt_error < relative_tol * state.mu:
-        #     opt_tol = self.options["convergence_tolerance"]
-        #     frac = self.options["monotone_barrier_fraction"]
-        #     mu_new = max(frac * state.mu, frac * opt_tol)
-
-        #     # Update the barrier parameter. Invalidate the residuals and the step
-        #     # (if any) because the barrier has changed
-        #     state.mu = mu_new
-
-        #     # Only the gradient and hessian retain their status
-        #     state.invalidate(grad=False, hess=False)
-
-        #     return True
-        # else:
-        #     return False
-
         btf = self.options["barrier_tol_factor"]
         barrier_err = state.kkt_error
         if barrier_err > btf * state.mu:
@@ -231,7 +212,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         self.monotone_mu = mu_new
 
         # Invalidate the residual and step since mu has changed
-        state.mu = mu_new
+        self.set_mu(state, mu_new)
         state.invalidate(grad=False, hess=False)
 
         return True
@@ -245,7 +226,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         mu_new = max(mu_new, self._lower_safeguard(state), self.mu_min)
         mu_new = min(mu_new, self.mu_max)
 
-        state.mu = mu_new
+        self.set_mu(state, mu_new)
         self.monotone_mu = mu_new
         state.invalidate(grad=False, hess=False, step=False)
 
@@ -273,7 +254,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         if glob == "obj-constr-filter":
             # Get the constraint gradient at the current point
             evaluator.evaluate_objective_and_infeasibility(state)
-            f_curr = state.objective_value + state.log_barrier_value
+            f_curr = state.barrier_objective
             theta_curr = state.con_infeasibility
 
             m1 = min(
@@ -301,7 +282,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
             self.refs.append(curr)
         elif glob == "obj-constr-filter":
             evaluator.evaluate_objective_and_infeasibility(state)
-            f_curr = state.objective_value + state.log_barrier_value
+            f_curr = state.barrier_objective
             theta_curr = state.con_infeasibility
 
             self.glob_filter.append((f_curr, theta_curr))
@@ -324,9 +305,6 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
 
     def _kkt_quality(self, evaluator, state):
         """Scalar KKT quality used for kkt-error globalization."""
-        # TODO: move to backend - combine scaling/centrality/balancing into
-        # one backend.kkt_quality(options) call.
-
         dual_sq, primal_sq, comp_sq = self.optimizer.compute_kkt_error(
             0.0, state.current, state.gradient
         )
@@ -353,7 +331,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         return qf
 
     def _quality_function_mu(self, solver, evaluator, state):
-        """Pick new mu via Mehrotra PC or golden-section QF search.
+        """Pick new mu via predictor-corrector or golden-section search.
 
         Sets self.px and self.update at the chosen mu for the caller.
         Returns (sigma, new_mu) or None on degenerate complementarity.
@@ -381,7 +359,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
             mu_nat, state.current, state.gradient, state.residual
         )
 
-        # Sove for the update with mu = mu_nat but the same left-hand-side
+        # Solve for the update with mu = mu_nat but the same left-hand-side
         solver.solve(state.residual, self.dpx)
 
         # Set dpx = px(mu = average) - px(mu = 0)
@@ -423,7 +401,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
                 f"a_aff=[{alpha_aff_x:.3f},{alpha_aff_z:.3f}])"
             )
 
-        # Compute the signa value
+        # Compute the sigma value
         sigma_eff = sigma
         if mu_nat > 0:
             sigma_eff = mu_new / mu_nat
@@ -533,7 +511,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
                 f"(comp={avg_comp:.3e})"
             )
 
-        # Compute the signa value
+        # Compute the sigma value
         sigma_eff = sigma_star
         if mu_nat > 0:
             sigma_eff = mu_new / mu_nat
@@ -582,7 +560,7 @@ class QualityFunctionBarrierStrategy(BarrierStrategy):
         self.optimizer.apply_step_update(
             alpha_x, alpha_z, state.current, state.step, self.temp
         )
-        # Eq. 4.2: complementarity term uses the plain products, no mu target
+        # The complementarity term uses the plain products, no mu target
         trial_comp_sq = self.optimizer.compute_sum_squared_complementarity(
             0.0, self.temp
         )

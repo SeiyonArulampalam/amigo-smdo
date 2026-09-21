@@ -2,6 +2,9 @@ import sys
 import os
 
 if sys.platform == "win32":
+    # Keep MKL from loading a second OpenMP runtime next to the one amigo links
+    os.environ.setdefault("MKL_THREADING_LAYER", "SEQUENTIAL")
+
     # Add DLL directories for Windows dependencies
     dll_dirs = [
         os.path.join(sys.prefix, "Library", "bin"),  # conda env or venv
