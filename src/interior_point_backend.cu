@@ -424,8 +424,9 @@ AMIGO_KERNEL void apply_step_primal_kernel(T ax, OptProblemInfo<T> info,
   result.x[idx] = current.x[idx] + ax * step.x[idx];
 }
 
+// Constraint multipliers move with alpha_x so dlam stays consistent with dx
 template <typename T>
-AMIGO_KERNEL void apply_step_constraint_kernel(T az, OptProblemInfo<T> info,
+AMIGO_KERNEL void apply_step_constraint_kernel(T ax, OptProblemInfo<T> info,
                                                OptState<const T> current,
                                                OptState<const T> step,
                                                OptState<T> result) {
@@ -434,7 +435,7 @@ AMIGO_KERNEL void apply_step_constraint_kernel(T az, OptProblemInfo<T> info,
     return;
   }
   int idx = info.constraint_indices[j];
-  result.x[idx] = current.x[idx] + az * step.x[idx];
+  result.x[idx] = current.x[idx] + ax * step.x[idx];
 }
 
 template <typename T>
@@ -468,7 +469,7 @@ void apply_step_cuda(T ax, T az, const OptProblemInfo<T>& info,
   if (info.num_constraints > 0) {
     int gc = (info.num_constraints + IPM_TPB - 1) / IPM_TPB;
     apply_step_constraint_kernel<T>
-        <<<gc, IPM_TPB, 0, stream>>>(az, info, current, step, result);
+        <<<gc, IPM_TPB, 0, stream>>>(ax, info, current, step, result);
   }
 }
 

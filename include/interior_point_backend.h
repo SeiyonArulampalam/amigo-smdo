@@ -291,6 +291,7 @@ void compute_max_step(T tau, const OptProblemInfo<T>& info,
 //   xlam_new = xlam + alpha_x * dxlam   (primals + multipliers)
 //   zl_new   = zl   + alpha_z * dzl     (lower bound duals)
 //   zu_new   = zu   + alpha_z * dzu     (upper bound duals)
+// Constraint multipliers move with alpha_x so dlam stays consistent with dx
 template <typename T>
 void apply_step(T ax, T az, const OptProblemInfo<T>& info,
                 OptState<const T>& current, OptState<const T>& step,
@@ -301,7 +302,7 @@ void apply_step(T ax, T az, const OptProblemInfo<T>& info,
   }
   for (int i = 0; i < info.num_constraints; i++) {
     int idx = info.constraint_indices[i];
-    result.x[idx] = current.x[idx] + az * step.x[idx];
+    result.x[idx] = current.x[idx] + ax * step.x[idx];
   }
   for (int i = 0; i < info.num_primals; i++) {
     if (!std::isinf(info.lbx[i])) {

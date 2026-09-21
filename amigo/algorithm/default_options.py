@@ -123,7 +123,7 @@ LINE_SEARCH = {
     "armijo_constant": 1e-4,
     "second_order_correction": True,
     # Clip the bound duals into a band around mu / gap and 0 disables
-    "kappa_sigma": 1e10,
+    "kappa_sigma": 1e4,
     # Filter line search
     # Violation ceiling theta_max = fact * max(1, theta0)
     "filter_theta_max_fact": 1e4,
