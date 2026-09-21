@@ -10,11 +10,20 @@ from . import LinearSolver
 
 
 class DirectCudaSolver(LinearSolver):
+    # Subclasses swap the compiled factorization class and the build option it needs
+    _factor_class = "CSRMatFactorCuda"
+    _requires = "CUDA"
+
     def __init__(self, options, state):
         try:
-            from amigo.amigo import CSRMatFactorCuda, Vector
+            from amigo import amigo as ext
+
+            factor_class = getattr(ext, self._factor_class)
+            Vector = ext.Vector
         except Exception:
-            raise NotImplementedError("Amigo compiled without CUDA support")
+            raise NotImplementedError(
+                f"Amigo compiled without {self._requires} support"
+            )
 
         get = options.get if hasattr(options, "get") else lambda k, d: d
         self.pivot_eps = float(get("cuda_pivot_eps", 1e-8))
@@ -23,7 +32,7 @@ class DirectCudaSolver(LinearSolver):
         self.residual_rtol = float(get("cuda_residual_rtol", 1e-4))
 
         self.mat_copy = state.hessian.duplicate()
-        self.solver = CSRMatFactorCuda(self.mat_copy, self.pivot_eps)
+        self.solver = factor_class(self.mat_copy, self.pivot_eps)
         self.solver.set_ir_steps(self.ir_steps)
 
         self._Vector = Vector
@@ -34,11 +43,22 @@ class DirectCudaSolver(LinearSolver):
         self.last_perturbed_pivots = 0
         self.num_perturbed_factorizations = 0
 
+        self._report_backend()
+
         if not get("perturb_always_cd", False):
             print(
-                "  DirectCudaSolver: set perturb_always_cd=True, static "
+                f"  {self._name}: set perturb_always_cd=True, static "
                 "pivoting is only reliable on a quasi-definite KKT"
             )
+
+    @property
+    def _name(self):
+        """Class name, so subclasses label their own output"""
+        return type(self).__name__
+
+    def _report_backend(self):
+        """Hook for subclasses to report on the constructed factorization"""
+        return
 
     def factor(self, hessian, diagonal):
         self.mat_copy.copy(hessian)
@@ -52,7 +72,7 @@ class DirectCudaSolver(LinearSolver):
             n = self.num_perturbed_factorizations
             if n <= 3 or n % 25 == 0:
                 print(
-                    f"  DirectCudaSolver: {self.last_perturbed_pivots} "
+                    f"  {self._name}: {self.last_perturbed_pivots} "
                     f"statically perturbed pivots (factorization {n})"
                 )
 
@@ -72,7 +92,7 @@ class DirectCudaSolver(LinearSolver):
                 n = self.num_residual_violations
                 if n <= 3 or n % 25 == 0:
                     print(
-                        f"  DirectCudaSolver: solve residual "
+                        f"  {self._name}: solve residual "
                         f"{self.last_rel_residual:.2e} > rtol "
                         f"{self.residual_rtol:.1e} (violation {n})"
                     )
@@ -80,7 +100,7 @@ class DirectCudaSolver(LinearSolver):
                 if n % 3 == 0 and self.pivot_eps > 1e-14:
                     self.pivot_eps = max(self.pivot_eps / 10.0, 1e-14)
                     print(
-                        f"  DirectCudaSolver: tightening pivot epsilon to "
+                        f"  {self._name}: tightening pivot epsilon to "
                         f"{self.pivot_eps:.1e}"
                     )
 

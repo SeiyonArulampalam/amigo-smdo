@@ -1,38 +1,41 @@
 """Starting point strategy.
 
-Restores feasibility from the initial point, centers the bound duals there,
-then estimates the equality multipliers by least squares. The least-squares
-estimate is only well-posed near the feasible manifold, hence the ordering.
+Restores feasibility from the initial point and then centers the start
+at the requested initial mu with the shared centering rule.
 """
 
 
 class FeasibilityPresolve:
     def __init__(self, options):
         self.enabled = options["feasibility_presolve"] and not options["warm_start"]
-        self.bound_push = options["warm_start_bound_push"]
-        self.mult_cap = options["warm_start_mult_init_max"]
+        self.initial_mu = options["initial_barrier_param"]
+        self.tau_min = options["tau_min"]
 
     def run(
         self,
         feasible_resto,
         multiplier_init,
-        optimizer,
+        centerer,
         solver,
         evaluator,
         state,
         line_search,
     ):
-        """Feasibility, then centered bound duals, then LS equality duals.
-
-        Returns True when the presolve ran and succeeded."""
+        """Restore feasibility and center the start, returning True on success."""
         if not self.enabled:
             return False
+
         resto_info = feasible_resto.restore(solver, evaluator, state, line_search)
         if not resto_info.success:
             return False
-        optimizer.initialize_duals_warm(
-            state.mu, self.bound_push, self.mult_cap, state.current
-        )
-        state.invalidate()
+
+        # The schedule starts at the requested initial mu
+        state.mu = self.initial_mu
+        state.tau = max(self.tau_min, 1.0 - state.mu)
+
+        # Center the restored point at the schedule mu
+        centerer.center(evaluator, state)
+
+        # Least squares multipliers subject to the magnitude cap
         multiplier_init.compute_least_squares_multipliers(evaluator, solver, state)
         return True

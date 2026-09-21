@@ -21,8 +21,8 @@ The five checks
 ---------------
 1. **NaN/Inf** - scan every entry of the design vector.
 2. **Bounds**  - compare x against user-supplied lower/upper vectors and
-   against component-declared meta bounds; flag zero-valued bounds that were
-   never set (``create_vector()`` defaults to 0).
+   against component-declared meta bounds, flagging zero-valued bounds that
+   were never set (``create_vector()`` defaults to 0).
 3. **Connectivity** - variables sharing the same short name across different
    components but whose global indices don't overlap are likely missing a
    ``model.link()`` call.
@@ -303,8 +303,8 @@ class Diagnostics:
         if self.upper is None or self.lower is None:
             return
 
-        # Only examine input variables; constraint variables are equality
-        # constraints whose upper/lower = 0 is correct by design.
+        # Only examine input variables, since constraint variables are
+        # equality constraints whose upper/lower = 0 is correct by design.
         input_names, _, _, _ = self.model.get_names()
 
         issues = []

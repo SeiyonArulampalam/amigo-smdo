@@ -24,6 +24,7 @@ from .barrier_strategy import make_barrier_strategy
 from .convergence_check import (
     ConvergenceCheck,
     CONTINUE,
+    CONVERGED_ACCEPTABLE,
     DIVERGED,
     RESTORATION_NEEDED,
     LOCALLY_INFEASIBLE,
@@ -33,9 +34,9 @@ from .evaluator import Evaluator
 from .globalization import FeasibilityRestoration, make_line_search
 from .initialization import (
     FeasibilityPresolve,
+    IterateCenterer,
     MultiplierInitializer,
     NLPScaling,
-    SlackInitializer,
 )
 from .iteration_logger import OptimizationLogger
 from .ipm_state import InteriorPointState
@@ -181,6 +182,7 @@ class Optimizer:
         # Allocate the Newton step
         newton_step = NewtonStep(options, self.problem, self.optimizer)
 
+        last_restoration_iter = 0
         # Feasibility restoration phase algorithm
         feasible_resto = FeasibilityRestoration(options, self.problem, self.optimizer)
         restoration_count = 0
@@ -209,10 +211,11 @@ class Optimizer:
         self.nlp_scaling = NLPScaling(options, self.problem, self.optimizer)
         self.nlp_scaling.compute(self.evaluator, self.state)
 
-        # Initialize the dual and slack variable values. This utilizes the solver object
-        # to find initial values of the dual variables
-        slack_init = SlackInitializer(options, self.model, self.problem, self.optimizer)
-        slack_init.initialize_slacks(self.evaluator, self.state)
+        # Center the iterate on the central path at the initial barrier
+        centerer = IterateCenterer(options, self.model, self.problem, self.optimizer)
+        centerer.center(
+            self.evaluator, self.state, keep_multipliers=options["warm_start"]
+        )
 
         # Initialize the multipliers
         multiplier_init = MultiplierInitializer(
@@ -231,7 +234,7 @@ class Optimizer:
             with the failure point only on line-search failures: the
             NaN/divergence verdicts may carry non-finite phi values.
             """
-            nonlocal restoration_count
+            nonlocal restoration_count, last_restoration_iter
             if not (
                 options["feasibility_restoration"]
                 and restoration_count < options["max_restorations"]
@@ -247,6 +250,7 @@ class Optimizer:
             )
             if resto_info.success:
                 restoration_count += 1
+                last_restoration_iter = self.state.iter
                 line_search.reset_after_restoration()
                 check.reset_step_watchdog(self.state)
                 # Least-squares multipliers at the restored point
@@ -255,12 +259,12 @@ class Optimizer:
                 )
             return resto_info
 
-        # Starting point strategy: feasible manifold, centered duals
+        # Optional feasible and centered starting point
         presolve = FeasibilityPresolve(options)
         presolve.run(
             feasible_resto,
             multiplier_init,
-            self.optimizer,
+            centerer,
             self.solver,
             self.evaluator,
             self.state,
@@ -274,6 +278,16 @@ class Optimizer:
         for counter in range(max_iters):
             # Update the iteration counter
             self.state.iter = counter
+
+            # Steady progress refills the restoration budget
+            refresh = options["restoration_budget_refresh_iters"]
+            if (
+                refresh > 0
+                and restoration_count > 0
+                and counter - last_restoration_iter >= refresh
+            ):
+                restoration_count -= 1
+                last_restoration_iter = counter
 
             # Evaluate the objective and barrier function
             self.evaluator.evaluate_objective_and_infeasibility(self.state)
@@ -362,7 +376,10 @@ class Optimizer:
                 resto_info = attempt_restoration(augment_filter=True)
                 if resto_info is not None and resto_info.success:
                     continue
-                if resto_info is not None and resto_info.infeasible:
+                # Keep an acceptable point when restoration fails
+                if check.point_acceptable(self.evaluator, self.state):
+                    status = CONVERGED_ACCEPTABLE
+                elif resto_info is not None and resto_info.infeasible:
                     status = LOCALLY_INFEASIBLE
                 else:
                     status = RESTORATION_NEEDED
@@ -401,7 +418,7 @@ class Optimizer:
         self.problem.compute_output(self.x, out_vec)
         return output
 
-    def compute_post_opt_derivatives(self, of=[], wrt=[], method="adjoint"):
+    def compute_post_opt_derivatives(self, of=None, wrt=None, method="adjoint"):
         """
         Compute the post-optimality derivatives of the outputs.
 
@@ -415,6 +432,12 @@ class Optimizer:
 
         if self.state is None:
             raise RuntimeError("Call optimize() before compute_post_opt_derivatives")
+
+        # Default to every output and every data entry
+        if of is None:
+            _, _, _, of = self.model.get_names()
+        if wrt is None:
+            _, _, wrt, _ = self.model.get_names()
 
         of_indices, of_map = self.model.get_indices_and_map(of)
         wrt_indices, wrt_map = self.model.get_indices_and_map(wrt)

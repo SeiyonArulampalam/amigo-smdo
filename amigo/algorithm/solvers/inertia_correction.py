@@ -66,7 +66,10 @@ class InertiaCorrector:
         self._dc_val = options["jacobian_regularization_value"]
         self._dc_exp = options["jacobian_regularization_exponent"]
 
-        # Infeasibility-proportional dual regularization, set by the retry policy
+        # Cap on delta_x past which a non-singular factorization with wrong inertia is accepted
+        self._dw_accept = options["max_regularization"]
+
+        # Dual regularization proportional to the infeasibility on every factorization
         self._dc_infeas_coeff = options["dual_reg_infeas_coeff"]
         self._dc_infeas = 0.0
         self._perturb_always_cd = options["perturb_always_cd"]
@@ -243,8 +246,8 @@ class InertiaCorrector:
         """
         self._finalize_test()
 
-        # Dual reg bounding the multiplier step, applied only on a re-solve
-        self._dc_infeas = self._dc_infeas_coeff * state.primal_infeas
+        # Dual regularization for this KKT system with a mu floor at feasible points
+        self._dc_infeas = self._dc_infeas_coeff * max(state.primal_infeas, state.mu)
 
         # Pivot tolerance persists across iterations.  Once IncreaseQuality
         # raises pivtol, the solver keeps the tighter setting
@@ -395,6 +398,21 @@ class InertiaCorrector:
             else:
                 # SYMSOLVER_WRONG_INERTIA (too many negatives) or
                 # SYMSOLVER_SINGULAR with no constraints
+                # Past the cap a mildly perturbed factorization beats a heavily convexified one
+                if (
+                    not singular
+                    and self._dw_accept > 0.0
+                    and self._delta_x_curr >= self._dw_accept
+                ):
+                    self.last_delta_w = self._delta_x_curr
+                    self.last_delta_c = self._delta_c_curr
+                    self.last_attempts = attempt + 1
+                    if state.comm_rank == 0 and self.verbose:
+                        print(
+                            f"  Inertia: accepting wrong inertia at "
+                            f"delta_w={self._delta_x_curr:.2e} (cap)"
+                        )
+                    return True
                 if not self._perturb_for_wrong_inertia(state):
                     if state.comm_rank == 0:
                         print(

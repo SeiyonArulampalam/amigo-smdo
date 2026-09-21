@@ -1,13 +1,4 @@
-"""Convergence tests for the interior-point loop.
-
-Primary convergence requires every KKT component below its tolerance.
-Divergence halts the solve when the iterate magnitude or the Newton
-step exceeds a safety bound. Acceptable convergence flags a weaker
-solution once relaxed tolerances hold for several iterations in a row.
-Precision-floor detection catches bit-identical residuals, the limit
-below which further progress is not possible. A non-finite error or a
-stall at a non-acceptable point asks for feasibility restoration.
-"""
+"""Convergence, divergence, and stall tests for the interior point loop."""
 
 import numpy as np
 
@@ -23,14 +14,14 @@ LOCALLY_INFEASIBLE = 7
 
 
 class ConvergenceCheck:
-    """Convergence checks: primary, acceptable, divergence, precision floor."""
+    """Primary, acceptable, divergence, and precision floor checks."""
 
     def __init__(self, options, problem, optimizer):
         self.options = options
         self.problem = problem
         self.optimizer = optimizer
 
-        # The previous residual norm - initialize to zero
+        # The previous residual norm
         self.prev_res_norm = 0.0
 
         # Set the precision floor count
@@ -46,13 +37,7 @@ class ConvergenceCheck:
         self.small_alpha_count = 0
 
     def test_small_alpha_stall(self, state):
-        """Report whether accepted steps keep stalling while infeasible.
-
-        Counts consecutive iterations whose primal step length is below
-        resto_trigger_alpha at a still-infeasible point, and returns True
-        once resto_trigger_iters of them accumulate. The counter resets on
-        the first healthy step and when the trigger fires.
-        """
+        """Report whether resto_trigger_iters accepted steps in a row stalled while infeasible."""
         stalled = (
             state.max_alpha_primal < self.options["resto_trigger_alpha"]
             and state.con_infeasibility > self.options["acceptable_constr_viol_tol"]
@@ -71,6 +56,18 @@ class ConvergenceCheck:
         """Clear the stale step norm so the watchdog does not re-fire."""
         self.diverging_step_count = 0
         state.raw_step_norm = 0.0
+
+    def point_acceptable(self, evaluator, state):
+        """One shot acceptable test for the failure rescue paths."""
+        evaluator.evaluate_residual(state)
+        if not np.isfinite(state.kkt_error):
+            return False
+        return (
+            state.kkt_error <= self.options["acceptable_tol"]
+            and state.dual_infeas <= self.options["acceptable_dual_inf_tol"]
+            and state.primal_infeas <= self.options["acceptable_constr_viol_tol"]
+            and state.complementarity <= self.options["acceptable_compl_inf_tol"]
+        )
 
     def test_convergence(self, evaluator, state):
         """

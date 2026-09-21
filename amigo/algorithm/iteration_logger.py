@@ -28,6 +28,10 @@ class OptimizationLogger:
 
         # Store the optimization data
         self.opt_data = {"options": self.options, "converged": False, "iterations": []}
+
+        # Counter of steps whose dual infeasibility left its linear model
+        self._prev_inf_du = None
+        self._dual_viol_count = 0
         return
 
     def get_data(self):
@@ -58,6 +62,19 @@ class OptimizationLogger:
         px = state.step.get_solution()
         iter_data["step_norm"] = self.problem.maxabs(px)
 
+        # Flag steps whose dual infeasibility exceeds the linear model by a slack factor
+        slack = 10.0
+        alpha = iter_data.get("alpha_x", 0.0)
+        if self._prev_inf_du is not None and alpha > 0.0:
+            bound = (1.0 - alpha) * self._prev_inf_du + slack * max(
+                self._prev_inf_du, 1.0
+            )
+            if state.dual_infeas > bound:
+                self._dual_viol_count += 1
+                iter_data["dual_viol"] = True
+        iter_data["dual_viol_total"] = self._dual_viol_count
+        self._prev_inf_du = state.dual_infeas
+
         # Write out the values
         self._write_log(status, state, iter_data)
 
@@ -87,7 +104,7 @@ class OptimizationLogger:
                 f"{'inf_pr':>9s}  {'inf_du':>9s}  {'compl':>9s}  "
                 f"{'mu':>9s}  {'||d||':>9s}  {'delta_w':>8s}  {'ic':>2s}  "
                 f"{'alpha_x':>8s}  {'alpha_z':>8s}  "
-                f"{'ls':>2s}  {'filt':>4s}"
+                f"{'ls':>2s}  {'filt':>4s}  {'rej':>4s}  {'frej':>4s}  {'dv':>3s}"
             )
 
         mu = iter_data.get("barrier_param", 1.0)
@@ -102,17 +119,20 @@ class OptimizationLogger:
         az = iter_data.get("alpha_z", 0.0)
         ls = iter_data.get("line_iters", 0)
         fsize = iter_data.get("filter_size", 0)
+        rej = iter_data.get("rejections", 0)
+        frej = iter_data.get("filter_rejections", 0)
         # Factorizations spent on inertia correction, the main GPU cost
         ic = iter_data.get("inertia_attempts", 0)
 
         dw_str = f"{delta_w:8.1e}" if delta_w > 0 else f"{'---':>8s}"
 
+        dv = iter_data.get("dual_viol_total", 0)
         print(
             f"{iteration:4d}  {nlp_err:9.2e}  {obj:12.5e}  "
             f"{inf_pr:9.2e}  {inf_du:9.2e}  {compl:9.2e}  "
             f"{mu:9.2e}  {step_norm:9.2e}  {dw_str}  {ic:2d}  "
             f"{ax:8.2e}  {az:8.2e}  "
-            f"{ls:2d}  {fsize:4d}"
+            f"{ls:2d}  {fsize:4d}  {rej:4d}  {frej:4d}  {dv:3d}"
         )
 
         d_inf_nlp = state.dual_infeas
@@ -133,6 +153,11 @@ class OptimizationLogger:
                 print(f"  Complementarity         {c_inf_nlp:>20.10e}")
                 print(f"  Barrier parameter       {state.mu:>20.10e}")
                 print(f"  Total iterations        {iteration:>20d}")
+                total_rej = iter_data.get("total_rejections")
+                if total_rej is not None:
+                    frej_total = iter_data.get("total_filter_rejections", 0)
+                    print(f"  Trial rejections        {total_rej:>20d}")
+                    print(f"  Filter vetoes           {frej_total:>20d}")
                 print(f"{'='*70}")
         elif status == CONVERGED_ACCEPTABLE:
             if state.comm_rank == 0:
@@ -147,6 +172,11 @@ class OptimizationLogger:
                 print(f"  Dual infeasibility      {d_inf_nlp:>20.10e}")
                 print(f"  Complementarity         {c_inf_nlp:>20.10e}")
                 print(f"  Total iterations        {iteration:>20d}")
+                total_rej = iter_data.get("total_rejections")
+                if total_rej is not None:
+                    frej_total = iter_data.get("total_filter_rejections", 0)
+                    print(f"  Trial rejections        {total_rej:>20d}")
+                    print(f"  Filter vetoes           {frej_total:>20d}")
                 print(f"{'='*70}")
 
         sys.stdout.flush()

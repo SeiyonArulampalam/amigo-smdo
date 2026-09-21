@@ -14,27 +14,30 @@ class MultiplierInitializer:
         self.problem = problem
         self.optimizer = optimizer
         self.temp_con = problem.create_constraint_vector()
+        self.saved_point = problem.create_vector()
 
     def initialize_multipliers(self, evaluator, solver, state):
         """Initialize the constraint multipliers in state.current."""
+        # Warm starts keep the supplied multipliers
+        if self.options["warm_start"]:
+            return
         if self.options["init_least_squares_multipliers"]:
             self.compute_least_squares_multipliers(evaluator, solver, state)
         return
 
     def recompute_multipliers(self, evaluator, solver, state):
-        """Refresh the constraint multipliers once the iterate is nearly
-        feasible, which keeps the dual variables from diverging.
-
-        The multipliers are recomputed only when recompute_multipliers is
-        enabled, the least-squares estimate is in use, and the primal
-        infeasibility is below recompute_multiplier_tol, and are left
-        unchanged otherwise.
-        """
+        """Reset diverged multipliers by least squares once the iterate is nearly feasible."""
         if (
             self.options["recompute_multipliers"]
-            and self.options["init_least_squares_multipliers"]
             and state.primal_infeas < self.options["recompute_multiplier_tol"]
+            and state.dual_infeas > self.options["recompute_dual_inf_trigger"]
         ):
+            # Report the reset
+            if state.comm_rank == 0:
+                print(
+                    f"  Multiplier refresh: dual_inf={state.dual_infeas:.2e} "
+                    f"at primal_infeas={state.primal_infeas:.2e}"
+                )
             self.compute_least_squares_multipliers(evaluator, solver, state)
         return
 
@@ -54,6 +57,9 @@ class MultiplierInitializer:
         x = state.get_current_point()
         primal_indices = self.problem.get_primal_indices()
         con_indices = self.problem.get_constraint_indices()
+
+        # Save the multipliers so the capped path can leave them unchanged
+        self.saved_point.copy(x)
 
         # Zero the multipliers so the gradient holds the objective term only
         x.fill_at(con_indices, 0.0)
@@ -81,10 +87,12 @@ class MultiplierInitializer:
         update = state.step.get_solution()
         solver.solve(state.residual, update)
 
-        # Skip the estimate if its magnitude exceeds the cap
+        # Take the estimate under the cap, otherwise restore the saved multipliers
         update.get_values_at(con_indices, self.temp_con)
         if self.problem.maxabs(self.temp_con) <= self.options["constr_mult_init_max"]:
             x.copy_at(con_indices, update)
+        else:
+            x.copy_at(con_indices, self.saved_point)
 
         state.invalidate()
         return

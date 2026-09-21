@@ -175,7 +175,7 @@ class InpParser:
         Returns
         -------
         edge_dict : dict
-            Keys are integer edge tags (0, 1, 2, …), one per unique global edge.
+            Keys are integer edge tags (0, 1, 2, ...), one per unique global edge.
             Values are tuples of global node indices that make up that edge.
             The first two entries are always the corner nodes in ascending order
             (lowest index first).  For higher-order elements a third entry
@@ -195,7 +195,7 @@ class InpParser:
         """
         # Local edge definitions per element type.
         # Each entry is a list of (local_node_i, local_node_j) pairs that form
-        # the edges of that element. Corner nodes only — mid-side nodes are
+        # the edges of that element. Corner nodes only, mid-side nodes are
         # included as the third entry where present so the full edge is
         # (corner_a, corner_b, optional_midside).
         _EDGE_LOCAL = {
