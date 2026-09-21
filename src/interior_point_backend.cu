@@ -473,6 +473,86 @@ void apply_step_cuda(T ax, T az, const OptProblemInfo<T>& info,
 }
 
 // =========================================================================
+// initialize_bound_duals_warm_cuda
+// =========================================================================
+
+template <typename T>
+AMIGO_KERNEL void initialize_bound_duals_warm_kernel(T mu, T zmax,
+                                                     OptProblemInfo<T> info,
+                                                     const T* xlam, T* zl,
+                                                     T* zu) {
+  int i = blockDim.x * blockIdx.x + threadIdx.x;
+  if (i >= info.num_primals) {
+    return;
+  }
+  int idx = info.primal_indices[i];
+  T x = xlam[idx];
+  zl[i] = 0.0;
+  zu[i] = 0.0;
+  if (!::isinf(info.lbx[i])) {
+    T z = mu / (x - info.lbx[i]);
+    zl[i] = z < zmax ? z : zmax;
+  }
+  if (!::isinf(info.ubx[i])) {
+    T z = mu / (info.ubx[i] - x);
+    zu[i] = z < zmax ? z : zmax;
+  }
+}
+
+template <typename T>
+void initialize_bound_duals_warm_cuda(T mu, T zmax,
+                                      const OptProblemInfo<T>& info,
+                                      const T* xlam, T* zl, T* zu,
+                                      cudaStream_t stream) {
+  if (info.num_primals > 0) {
+    int gp = (info.num_primals + IPM_TPB - 1) / IPM_TPB;
+    initialize_bound_duals_warm_kernel<T>
+        <<<gp, IPM_TPB, 0, stream>>>(mu, zmax, info, xlam, zl, zu);
+  }
+}
+
+// =========================================================================
+// correct_bound_multipliers_cuda
+// =========================================================================
+
+template <typename T>
+AMIGO_KERNEL void correct_bound_multipliers_kernel(T mu, T kappa,
+                                                   OptProblemInfo<T> info,
+                                                   OptState<T> current) {
+  int i = blockDim.x * blockIdx.x + threadIdx.x;
+  if (i >= info.num_primals) {
+    return;
+  }
+  int idx = info.primal_indices[i];
+  T x = current.x[idx];
+  if (!::isinf(info.lbx[i])) {
+    T gap = x - info.lbx[i];
+    T zmax = kappa * mu / gap;
+    T zmin = mu / (kappa * gap);
+    T z = current.zl[i];
+    current.zl[i] = z > zmax ? zmax : (z < zmin ? zmin : z);
+  }
+  if (!::isinf(info.ubx[i])) {
+    T gap = info.ubx[i] - x;
+    T zmax = kappa * mu / gap;
+    T zmin = mu / (kappa * gap);
+    T z = current.zu[i];
+    current.zu[i] = z > zmax ? zmax : (z < zmin ? zmin : z);
+  }
+}
+
+template <typename T>
+void correct_bound_multipliers_cuda(T mu, T kappa,
+                                    const OptProblemInfo<T>& info,
+                                    OptState<T>& current, cudaStream_t stream) {
+  if (info.num_primals > 0) {
+    int gp = (info.num_primals + IPM_TPB - 1) / IPM_TPB;
+    correct_bound_multipliers_kernel<T>
+        <<<gp, IPM_TPB, 0, stream>>>(mu, kappa, info, current);
+  }
+}
+
+// =========================================================================
 // compute_complementarity_cuda
 // =========================================================================
 //
@@ -1035,6 +1115,14 @@ template void apply_step_cuda<double>(double ax, double az,
                                       OptState<double>& result,
                                       cudaStream_t stream);
 
+template void initialize_bound_duals_warm_cuda<double>(
+    double mu, double zmax, const OptProblemInfo<double>& info,
+    const double* xlam, double* zl, double* zu, cudaStream_t stream);
+
+template void correct_bound_multipliers_cuda<double>(
+    double mu, double kappa, const OptProblemInfo<double>& info,
+    OptState<double>& current, cudaStream_t stream);
+
 template void compute_complementarity_cuda<double>(
     const OptProblemInfo<double>& info, OptState<const double>& current,
     double partial_sum[], double& local_min, cudaStream_t stream);
@@ -1106,6 +1194,14 @@ template void apply_step_cuda<float>(float ax, float az,
                                      OptState<const float>& step,
                                      OptState<float>& result,
                                      cudaStream_t stream);
+
+template void initialize_bound_duals_warm_cuda<float>(
+    float mu, float zmax, const OptProblemInfo<float>& info, const float* xlam,
+    float* zl, float* zu, cudaStream_t stream);
+
+template void correct_bound_multipliers_cuda<float>(
+    float mu, float kappa, const OptProblemInfo<float>& info,
+    OptState<float>& current, cudaStream_t stream);
 
 template void compute_complementarity_cuda<float>(
     const OptProblemInfo<float>& info, OptState<const float>& current,

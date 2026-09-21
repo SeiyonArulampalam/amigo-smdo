@@ -28,6 +28,7 @@ class SerialVecBackend {
   void add_scalar(T scalar) {}
   void scale(T alpha) {}
   void axpy(T alpha, const T* d_x) {}
+  void multiply(const T* d_x) {}
 
   T dot(const T* d_src) const { return T(0); }
   T maxabs(int& index) { return T(0); }
@@ -158,6 +159,19 @@ class Vector {
       }
     } else {
       backend.scale(alpha);
+    }
+  }
+
+  template <ExecPolicy policy>
+  void multiply(const std::shared_ptr<Vector<T>> x) {
+    if constexpr (policy == ExecPolicy::SERIAL ||
+                  policy == ExecPolicy::OPENMP) {
+      const T* x_array = x->get_array();
+      for (int i = 0; i < size; i++) {
+        array[i] *= x_array[i];
+      }
+    } else {
+      backend.multiply(x->get_device_array());
     }
   }
 

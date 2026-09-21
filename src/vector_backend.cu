@@ -172,6 +172,21 @@ AMIGO_KERNEL void vec_abssum_kernel(int n, const T* __restrict__ d_ptr,
 // -------------------------------------------------------------------------
 
 template <typename T>
+AMIGO_KERNEL void vec_multiply_kernel(int n, const T* __restrict__ d_x,
+                                      T* __restrict__ d_ptr) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n) {
+    d_ptr[i] *= d_x[i];
+  }
+}
+
+template <typename T>
+void vec_multiply(int n, const T* d_x, T* d_ptr) {
+  int grid = (n + VEC_TPB - 1) / VEC_TPB;
+  vec_multiply_kernel<T><<<grid, VEC_TPB>>>(n, d_x, d_ptr);
+}
+
+template <typename T>
 void vec_fill(int n, T value, T* d_ptr) {
   int grid = (n + VEC_TPB - 1) / VEC_TPB;
   vec_fill_kernel<T><<<grid, VEC_TPB>>>(n, value, d_ptr);
@@ -267,6 +282,7 @@ T vec_abssum(int n, const T* d_ptr) {
 #define INSTANTIATE(T)                                               \
   template void vec_fill<T>(int, T, T*);                             \
   template void vec_add_scalar<T>(int, T, T*);                       \
+  template void vec_multiply<T>(int, const T*, T*);                  \
   template void vec_copy_at<T>(int, const int*, const T*, T*);       \
   template void vec_fill_at<T>(int, const int*, T, T*);              \
   template void vec_add_scalar_at<T>(int, const int*, T, T*);        \

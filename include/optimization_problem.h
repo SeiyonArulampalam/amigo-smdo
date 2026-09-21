@@ -355,6 +355,30 @@ class OptimizationProblem {
   }
 
   /**
+   * @brief Set the NLP variable scaling (1 on primals/slacks, dc on duals).
+   *        A null vector disables scaling.
+   */
+  void set_var_scale(std::shared_ptr<Vector<T>> scale) { var_scale = scale; }
+
+  std::shared_ptr<Vector<T>> get_var_scale() { return var_scale; }
+
+  /**
+   * @brief Evaluation point in scaled space: x_eval = x .* var_scale. Returns x
+   *        unchanged when no scaling is set.
+   */
+  std::shared_ptr<Vector<T>> apply_var_scale(const std::shared_ptr<Vector<T>> x) {
+    if (!var_scale) {
+      return x;
+    }
+    if (!x_eval) {
+      x_eval = create_vector();
+    }
+    x_eval->copy(x);
+    x_eval->template multiply<policy>(var_scale);
+    return x_eval;
+  }
+
+  /**
    * @brief Create a local vector consistent with the primal variables
    */
   std::shared_ptr<Vector<T>> create_primal_vector() {
@@ -957,14 +981,15 @@ class OptimizationProblem {
    * @return The value of the Lagrangian
    */
   T lagrangian(T alpha, std::shared_ptr<Vector<T>> x) {
-    var_dist.begin_forward(x, var_ctx);
-    var_dist.end_forward(x, var_ctx);
+    auto xs = apply_var_scale(x);
+    var_dist.begin_forward(xs, var_ctx);
+    var_dist.end_forward(xs, var_ctx);
 
     T lagrange = 0.0;
     for (size_t i = 0; i < components.size(); i++) {
       // Only sum over components that are not continuation components
       if (!components[i]->is_continuation()) {
-        lagrange += components[i]->lagrangian(alpha, *data_vec, *x);
+        lagrange += components[i]->lagrangian(alpha, *data_vec, *xs);
 #ifdef AMIGO_USE_CUDA
         AMIGO_CHECK_CUDA(cudaGetLastError());
 #endif
@@ -986,15 +1011,16 @@ class OptimizationProblem {
    */
   void gradient(T alpha, const std::shared_ptr<Vector<T>> x,
                 std::shared_ptr<Vector<T>> g, bool zero_fixed_rows) {
-    var_dist.begin_forward(x, var_ctx);
-    var_dist.end_forward(x, var_ctx);
+    auto xs = apply_var_scale(x);
+    var_dist.begin_forward(xs, var_ctx);
+    var_dist.end_forward(xs, var_ctx);
 
     g->zero();
     for (size_t i = 0; i < components.size(); i++) {
       // Only add the gradient for components that are not continuation
       // components
       if (!components[i]->is_continuation()) {
-        components[i]->add_gradient(alpha, *data_vec, *x, *g);
+        components[i]->add_gradient(alpha, *data_vec, *xs, *g);
 #ifdef AMIGO_USE_CUDA
         AMIGO_CHECK_CUDA(cudaGetLastError());
 #endif
@@ -1006,6 +1032,11 @@ class OptimizationProblem {
 #endif
     var_dist.begin_reverse_add(g, var_ctx);
     var_dist.end_reverse_add(g, var_ctx);
+
+    // Scale the gradient rows by var_scale, which is one on the primals
+    if (var_scale) {
+      g->template multiply<policy>(var_scale);
+    }
 
     if (fixed && zero_fixed_rows) {
       fixed->zero_rows<policy>(g);
@@ -1063,13 +1094,14 @@ class OptimizationProblem {
   void hessian(T alpha, const std::shared_ptr<Vector<T>> x,
                std::shared_ptr<CSRMat<T>> matrix,
                bool zero_fixed_rows_and_columns = true) {
-    var_dist.begin_forward(x, var_ctx);
-    var_dist.end_forward(x, var_ctx);
+    auto xs = apply_var_scale(x);
+    var_dist.begin_forward(xs, var_ctx);
+    var_dist.end_forward(xs, var_ctx);
 
     // Compute the Hessian matrix entries
     matrix->zero();
     for (size_t i = 0; i < components.size(); i++) {
-      components[i]->add_hessian(alpha, *data_vec, *x, *var_owners, *matrix);
+      components[i]->add_hessian(alpha, *data_vec, *xs, *var_owners, *matrix);
 #ifdef AMIGO_USE_CUDA
       AMIGO_CHECK_CUDA(cudaGetLastError());
 #endif
@@ -1080,6 +1112,11 @@ class OptimizationProblem {
 
     mat_dist->begin_assembly(matrix, mat_dist_ctx);
     mat_dist->end_assembly(matrix, mat_dist_ctx);
+
+    // Symmetric scaling D K D with D = var_scale
+    if (var_scale) {
+      matrix->template scale_symmetric<policy>(var_scale);
+    }
 
     if (fixed && zero_fixed_rows_and_columns) {
       fixed->zero_rows_and_columns<policy>(matrix);
@@ -1641,6 +1678,10 @@ class OptimizationProblem {
   // Local indices of the primal and constraint variables
   std::shared_ptr<Vector<int>> primal_indices;
   std::shared_ptr<Vector<int>> constraint_indices;
+
+  // Optional NLP scaling under which the derivatives run in scaled space
+  std::shared_ptr<Vector<T>> var_scale;
+  std::shared_ptr<Vector<T>> x_eval;
 
   // Node numbers created by
   std::shared_ptr<Vector<int>> dist_node_numbers;

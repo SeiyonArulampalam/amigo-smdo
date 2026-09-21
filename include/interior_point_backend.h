@@ -113,7 +113,7 @@ void project_primals_into_interior(const OptProblemInfo<T>& info, T* xlam,
   }
 }
 
-// Initialize bound duals to 1.0 for all finite bounds (Section 3.6).
+// Initialize bound duals to mu for all finite bounds and zero otherwise
 // Must be called after project_primals_into_interior.
 template <typename T>
 void initialize_bound_duals(T mu, const OptProblemInfo<T>& info, const T* xlam,
@@ -309,6 +309,44 @@ void apply_step(T ax, T az, const OptProblemInfo<T>& info,
     }
     if (!std::isinf(info.ubx[i])) {
       result.zu[i] = current.zu[i] + az * step.zu[i];
+    }
+  }
+}
+
+// Warm start bound duals z = min(mu/gap, zmax) after projecting the primals
+template <typename T>
+void initialize_bound_duals_warm(T mu, T zmax, const OptProblemInfo<T>& info,
+                                 const T* xlam, T* zl, T* zu) {
+  for (int i = 0; i < info.num_primals; i++) {
+    int idx = info.primal_indices[i];
+    T x = xlam[idx];
+    zl[i] = 0.0;
+    zu[i] = 0.0;
+    if (!std::isinf(info.lbx[i])) {
+      zl[i] = A2D::min2(mu / (x - info.lbx[i]), zmax);
+    }
+    if (!std::isinf(info.ubx[i])) {
+      zu[i] = A2D::min2(mu / (info.ubx[i] - x), zmax);
+    }
+  }
+}
+
+// Sigma safeguard clipping each bound dual near mu/gap
+template <typename T>
+void correct_bound_multipliers(T mu, T kappa, const OptProblemInfo<T>& info,
+                               OptState<T>& current) {
+  for (int i = 0; i < info.num_primals; i++) {
+    int idx = info.primal_indices[i];
+    T x = current.x[idx];
+    if (!std::isinf(info.lbx[i])) {
+      T gap = x - info.lbx[i];
+      current.zl[i] = A2D::max2(A2D::min2(current.zl[i], kappa * mu / gap),
+                                mu / (kappa * gap));
+    }
+    if (!std::isinf(info.ubx[i])) {
+      T gap = info.ubx[i] - x;
+      current.zu[i] = A2D::max2(A2D::min2(current.zu[i], kappa * mu / gap),
+                                mu / (kappa * gap));
     }
   }
 }
@@ -555,6 +593,20 @@ template <typename T>
 void compute_kkt_error_cuda(T mu, const OptProblemInfo<T>& info,
                             OptState<const T>& current, const T* grad, T& dual,
                             T& primal, T& comp, cudaStream_t stream = 0);
+
+// Device version of initialize_bound_duals_warm
+template <typename T>
+void initialize_bound_duals_warm_cuda(T mu, T zmax,
+                                      const OptProblemInfo<T>& info,
+                                      const T* xlam, T* zl, T* zu,
+                                      cudaStream_t stream = 0);
+
+// Device version of correct_bound_multipliers
+template <typename T>
+void correct_bound_multipliers_cuda(T mu, T kappa,
+                                    const OptProblemInfo<T>& info,
+                                    OptState<T>& current,
+                                    cudaStream_t stream = 0);
 
 // Log-barrier value: -mu * sum_i (ln(x_i - lb_i) + ln(ub_i - x_i)).
 template <typename T>

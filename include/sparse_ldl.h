@@ -1955,10 +1955,14 @@ class SparseLDL {
     int pos = 0, neg = 0;
     for (int i = 0; i < num_pivots;) {
       if (piv[i] >= 0) {
-        if (L[i * (ldl + 1)] >= 0.0) {
-          pos++;
-        } else {
-          neg++;
+        T d = L[i * (ldl + 1)];
+        // A pivot below pivot_tol counts as rank deficient so npos + nneg < n
+        if (std::abs(d) >= pivot_tol) {
+          if (d >= 0.0) {
+            pos++;
+          } else {
+            neg++;
+          }
         }
         i++;
       } else {
@@ -1967,13 +1971,20 @@ class SparseLDL {
         T d22 = L[(i + 1) * (ldl + 1)];
         T det = d11 * d22 - d21 * d21;
 
-        if (det >= 0.0) {
+        if (std::abs(det) < pivot_tol) {
+          // A near singular 2x2 block has one zero eigenvalue and the trace sign gives the other
+          if (d11 + d22 >= 0.0) {
+            pos++;
+          } else {
+            neg++;
+          }
+        } else if (det >= 0.0) {
           if (d11 >= 0.0) {
             pos += 2;
           } else {
             neg += 2;
           }
-        } else {  // det < 1
+        } else {  // det < 0
           pos++;
           neg++;
         }

@@ -18,6 +18,15 @@ template <typename T>
 void set_value_at_indices_cuda(T value, int nentries, const int* d_indices,
                                T* d_array, cudaStream_t stream = 0);
 
+template <typename T>
+void row_maxabs_cuda(int nrows, const int* d_rowp, const T* d_data, T* d_out,
+                     cudaStream_t stream = 0);
+
+template <typename T>
+void scale_symmetric_cuda(int nrows, const int* d_rowp, const int* d_cols,
+                          T* d_data, const T* d_diagvals,
+                          cudaStream_t stream = 0);
+
 }  // namespace detail
 
 template <typename T>
@@ -67,6 +76,8 @@ class CudaCSRMatBackend {
     AMIGO_CHECK_CUDA(cudaMalloc(&d_cols, nnz * sizeof(int)));
     AMIGO_CHECK_CUDA(cudaMalloc(&d_diag, nrows * sizeof(int)));
     AMIGO_CHECK_CUDA(cudaMalloc(&d_data, nnz * sizeof(T)));
+    // Match the host array's zero initialization
+    AMIGO_CHECK_CUDA(cudaMemset(d_data, 0, nnz * sizeof(T)));
   }
 
   void copy_pattern_host_to_device(const int* rowp, const int* cols,
@@ -80,6 +91,11 @@ class CudaCSRMatBackend {
       AMIGO_CHECK_CUDA(cudaMemcpy(d_diag, diag, nrows * sizeof(int),
                                   cudaMemcpyHostToDevice));
     }
+  }
+
+  void copy_data_host_to_device(const T* data) {
+    AMIGO_CHECK_CUDA(
+        cudaMemcpy(d_data, data, nnz * sizeof(T), cudaMemcpyHostToDevice));
   }
 
   void copy_data_device_to_host(T* data) {
@@ -103,6 +119,14 @@ class CudaCSRMatBackend {
 
   void add_diagonal(const T* d_values) {
     detail::add_diagonal_cuda(nrows, d_diag, d_values, d_data);
+  }
+
+  void row_maxabs(T* d_out) {
+    detail::row_maxabs_cuda(nrows, d_rowp, d_data, d_out);
+  }
+
+  void scale_symmetric(const T* d_diagvals) {
+    detail::scale_symmetric_cuda(nrows, d_rowp, d_cols, d_data, d_diagvals);
   }
 
   void get_device_data(int* rowp[], int* cols[], T* data[]) {

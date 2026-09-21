@@ -1318,6 +1318,12 @@ amigo_add_python_module(
             f"-Dpybind11_DIR={cmake_pybind11_dir}",
             f"-DCMAKE_BUILD_TYPE={build_type}",
         ]
+
+        # Link the single MKL runtime so the module shares the OpenMP runtime of amigo
+        mkl_rt = Path(sys.prefix) / "Library" / "lib" / "mkl_rt.lib"
+        if sys.platform == "win32" and mkl_rt.exists():
+            cmake_cmd.append("-DBLA_VENDOR=Intel10_64_dyn")
+
         build_cmd = ["cmake", "--build", str(build_dir), "--config", build_type]
 
         print("Running CMake commands from amigo")

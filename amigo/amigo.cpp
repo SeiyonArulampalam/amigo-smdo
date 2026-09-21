@@ -108,6 +108,10 @@ void bind_vector(py::module_& m, const std::string& name) {
       .def("add_scalar", &amigo::Vector<T>::template add_scalar<policy>)
       .def("scale", &amigo::Vector<T>::template scale<policy>)
       .def("axpy", &amigo::Vector<T>::template axpy<policy>)
+      .def("dot", [](std::shared_ptr<amigo::Vector<T>> self,
+                     std::shared_ptr<amigo::Vector<T>> x) {
+        return self->template dot<policy>(x);
+      })
       .def("copy_at", &amigo::Vector<T>::template copy_at<policy>)
       .def("fill_at", &amigo::Vector<T>::template fill_at<policy>)
       .def("add_scalar_at", &amigo::Vector<T>::template add_scalar_at<policy>)
@@ -396,6 +400,10 @@ PYBIND11_MODULE(amigo, mod) {
       .def("copy", &amigo::CSRMat<double>::copy)
       .def("add_diagonal",
            &amigo::CSRMat<double>::template add_diagonal<detail::policy>)
+      .def("row_maxabs",
+           &amigo::CSRMat<double>::template row_maxabs<detail::policy>)
+      .def("scale_symmetric",
+           &amigo::CSRMat<double>::template scale_symmetric<detail::policy>)
       .def("get_data",
            [](py::object self) -> py::array_t<double> {
              auto& mat = self.cast<amigo::CSRMat<double>&>();
@@ -425,6 +433,8 @@ PYBIND11_MODULE(amigo, mod) {
       .def("get_column_owners", &amigo::CSRMat<double>::get_column_owners)
       .def("gauss_seidel", &amigo::CSRMat<double>::gauss_seidel)
       .def("mult", &amigo::CSRMat<double>::mult)
+      .def("copy_data_host_to_device",
+           &amigo::CSRMat<double>::copy_data_host_to_device)
       .def("copy_data_device_to_host",
            &amigo::CSRMat<double>::copy_data_device_to_host);
 
@@ -537,6 +547,10 @@ PYBIND11_MODULE(amigo, mod) {
       .def("get_constraint_indices",
            &amigo::OptimizationProblem<double,
                                        detail::policy>::get_constraint_indices)
+      .def("set_var_scale",
+           &amigo::OptimizationProblem<double, detail::policy>::set_var_scale)
+      .def("get_var_scale",
+           &amigo::OptimizationProblem<double, detail::policy>::get_var_scale)
       .def("partition_from_root",
            &amigo::OptimizationProblem<double,
                                        detail::policy>::partition_from_root,
@@ -742,7 +756,32 @@ PYBIND11_MODULE(amigo, mod) {
         int npos = 0, nneg = 0;
         self.get_inertia(&npos, &nneg);
         return py::make_tuple(npos, nneg);
-      });
+      })
+      .def("num_perturbed_pivots", &amigo::CSRMatFactorCuda::num_perturbed_pivots)
+      .def("set_pivot_epsilon", &amigo::CSRMatFactorCuda::set_pivot_epsilon)
+      .def("set_ir_steps", &amigo::CSRMatFactorCuda::set_ir_steps)
+      .def("residual", &amigo::CSRMatFactorCuda::residual);
+
+  py::class_<amigo::CSRMatFactorCudaBordered,
+             std::shared_ptr<amigo::CSRMatFactorCudaBordered>>(
+      mod, "CSRMatFactorCudaBordered")
+      .def(py::init<std::shared_ptr<amigo::CSRMat<double>>, double>(),
+           py::arg("mat"), py::arg("pivot_tol") = 1e-12)
+      .def("factor", &amigo::CSRMatFactorCudaBordered::factor)
+      .def("solve", &amigo::CSRMatFactorCudaBordered::solve)
+      .def("get_inertia",
+           [](amigo::CSRMatFactorCudaBordered& self) {
+             int npos = 0, nneg = 0;
+             self.get_inertia(&npos, &nneg);
+             return py::make_tuple(npos, nneg);
+           })
+      .def("num_perturbed_pivots",
+           &amigo::CSRMatFactorCudaBordered::num_perturbed_pivots)
+      .def("set_pivot_epsilon",
+           &amigo::CSRMatFactorCudaBordered::set_pivot_epsilon)
+      .def("set_ir_steps", &amigo::CSRMatFactorCudaBordered::set_ir_steps)
+      .def("residual", &amigo::CSRMatFactorCudaBordered::residual)
+      .def("num_bordered", &amigo::CSRMatFactorCudaBordered::num_bordered);
 #endif
 
   py::class_<amigo::OptVector<double>,
@@ -782,6 +821,7 @@ PYBIND11_MODULE(amigo, mod) {
       .def("get_num_primals", &IPMOpt::get_num_primals)
       .def("get_num_constraints", &IPMOpt::get_num_constraints)
       .def("initialize_duals", &IPMOpt::initialize_duals)
+      .def("initialize_duals_warm", &IPMOpt::initialize_duals_warm)
       .def("compute_residual", &IPMOpt::compute_residual)
       .def("compute_update", &IPMOpt::compute_update)
       .def("compute_diagonal", &IPMOpt::compute_diagonal)
@@ -794,6 +834,7 @@ PYBIND11_MODULE(amigo, mod) {
              return py::make_tuple(ax, xi, az, zi);
            })
       .def("apply_step_update", &IPMOpt::apply_step_update)
+      .def("correct_bound_multipliers", &IPMOpt::correct_bound_multipliers)
       .def(
           "compute_complementarity",
           [](const IPMOpt& self, std::shared_ptr<OV> vars) {
