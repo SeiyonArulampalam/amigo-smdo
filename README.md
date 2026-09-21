@@ -10,6 +10,15 @@ A tutorial on how to use amigo and documentation can be found here: [https://smd
 
 ## Installing amigo
 
+The quickest way to get a working build on Linux, macOS or Windows is [pixi](https://pixi.sh), which installs the compiler toolchain, MPI, BLAS/LAPACK, METIS and MUMPS into a project-local environment:
+
+```
+pixi install
+pixi run install-amigo
+```
+
+See [README_pixi.md](README_pixi.md) for the available environments, tasks and platform notes. The rest of this section describes installing the dependencies yourself.
+
 Amigo uses CMake and scikit-build to build the primary amigo module and all model modules that comprise a multidisciplinary model.
 
 To build and install the primary amigo module and its python wrappers, you can build the module with
@@ -60,6 +69,8 @@ pip install -e . -v \
 ## MUMPS sparse solver
 
 Amigo's interior-point optimizer can use [MUMPS](https://mumps-solver.org/) to obtain symmetric indefinite factorization of the KKT system. MUMPS is loaded at runtime, so it is not needed at build time. We use [coin-or/ThirdParty-Mumps](https://github.com/coin-or-tools/ThirdParty-Mumps) to build from source on all platforms, installing to `$HOME/mumps-coinor` so the Amigo loader finds the library automatically without any extra environment variables.
+
+If you use pixi, `mumps-seq` is already part of the environment and the steps below are unnecessary on Linux and macOS -- see [README_pixi.md](README_pixi.md).
 
 ### Linux
 

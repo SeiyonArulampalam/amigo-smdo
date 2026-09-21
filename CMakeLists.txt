@@ -139,9 +139,14 @@ endif()
 # Try to find METIS
 if(AMIGO_ENABLE_METIS)
   set(METIS_ROOT "" CACHE PATH "Root directory of METIS installation")
-  set(METIS_INCLUDE_DIR "" CACHE PATH "Path to METIS headers")
-  set(METIS_LIBRARY "" CACHE FILEPATH "Path to libmetis")
 
+  # NOTE: METIS_INCLUDE_DIR and METIS_LIBRARY are deliberately not seeded with
+  # empty cache entries here. find_path() and find_library() skip searching
+  # when their result variable is already set in the cache, and an empty string
+  # counts as set, so pre-creating them would make FindMETIS.cmake a no-op and
+  # METIS could only ever be found by passing both paths on the command line.
+  # Passing -DMETIS_INCLUDE_DIR=... -DMETIS_LIBRARY=... still works: those
+  # define the variables before the check below.
   list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
   unset(METIS_FOUND)
@@ -164,10 +169,10 @@ if(AMIGO_ENABLE_METIS)
     message(STATUS "METIS found: enabling AMIGO_USE_METIS")
   else()
     message(WARNING
-      "METIS not found: falling back to the internal AMD ordering. "
-      "The DEFAULT ordering degrades from nested dissection to AMD, which "
-      "is drastically slower to compute on large models. Pass "
-      "-DMETIS_INCLUDE_DIR=... -DMETIS_LIBRARY=... to restore METIS.")
+      "METIS not found: the DEFAULT ordering falls back to AMD, which is much "
+      "slower on large models. Set METIS_ROOT (or the METIS_ROOT environment "
+      "variable) to a METIS installation prefix, or set METIS_INCLUDE_DIR and "
+      "METIS_LIBRARY directly, to enable it.")
     set(AMIGO_ENABLE_METIS OFF)
   endif()
 endif()
