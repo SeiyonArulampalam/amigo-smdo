@@ -112,10 +112,10 @@ class BasisCollection:
             soln.update(basis.eval(comp, pt))
         return soln
 
-    def transform(self, detJ, Jinv, orig):
+    def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for basis in self.basis:
-            soln.update(basis.transform(detJ, Jinv, orig))
+            soln.update(basis.transform(detJ, J, Jinv, orig))
         return soln
 
     def compute_transform(self, geo):
@@ -154,7 +154,7 @@ class ConstantBasis(Basis):
     def __init__(self, names, nnodes=1, kind="input"):
         super().__init__(names, nnodes=nnodes, kind=kind)
 
-    def transform(self, detJ, Jinv, orig):
+    def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
             value = orig[name]["value"]
@@ -188,7 +188,7 @@ class LagrangeBasis1D(Basis):
         self.pts = np.linspace(-1, 1, nnodes)
         self.C = build_1d_lagrange_vandermonde(self.p, self.pts)
 
-    def transform(self, detJ, Jinv, orig):
+    def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
             value = orig[name]["value"]
@@ -208,7 +208,8 @@ class LagrangeBasis1D(Basis):
 
         detJ = am.sqrt(x_xi**2 + y_xi**2)
         Jinv = 1.0 / detJ
-        return detJ, Jinv
+        J = detJ
+        return detJ, J, Jinv
 
     def eval(self, comp, pt):
         xi = pt[0]
@@ -240,7 +241,7 @@ class LagrangeBasis2D(Basis):
     def __init__(self, names, nnodes=1, kind="input"):
         super().__init__(names, nnodes=nnodes, kind=kind)
 
-    def transform(self, detJ, Jinv, orig):
+    def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
             value = orig[name]["value"]
@@ -260,10 +261,16 @@ class LagrangeBasis2D(Basis):
         y_xi, y_eta = geo["y"]["grad"]
 
         detJ = x_xi * y_eta - x_eta * y_xi
+        J = [[x_xi, x_eta], [y_xi, y_eta]]
         inv = 1.0 / detJ
         Jinv = [[y_eta * inv, -x_eta * inv], [-y_xi * inv, x_xi * inv]]
 
-        return detJ, Jinv
+        return detJ, J, Jinv
+
+
+class RaviartThomasBasis2D(Basis):
+    def __init__(self, names, nnodes=1, kind="input"):
+        super()._init__(names, nnodes=nnodes, kind=kind)
 
 
 class TriangleLagrangeBasis(LagrangeBasis2D):

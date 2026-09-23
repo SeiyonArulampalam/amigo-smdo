@@ -48,13 +48,13 @@ class FiniteElement(am.Component):
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
-        detJ, Jinv = self.geo_basis.compute_transform(geo)
-        soln_phys = self.soln_basis.transform(detJ, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
+        detJ, J, Jinv = self.geo_basis.compute_transform(geo)
+        soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
+        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         if self.test_basis is not None:
             # Transform the test space derivatives into the physical space
-            test_phys = self.test_basis.transform(detJ, Jinv, test_xi)
+            test_phys = self.test_basis.transform(detJ, J, Jinv, test_xi)
 
             # Don't add the alpha coefficient - this will all be proportaional to the
             # multipliers through the test function
@@ -111,9 +111,9 @@ class FiniteElementOutput(am.Component):
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
-        detJ, Jinv = self.geo_basis.compute_transform(geo)
-        soln_phys = self.soln_basis.transform(detJ, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
+        detJ, J, Jinv = self.geo_basis.compute_transform(geo)
+        soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
+        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         # Add the contributions directly to the Lagrangian
         outputs = self.output_function(soln_phys, data=data_phys, geo=geo)
@@ -181,9 +181,9 @@ class MITCElement(FiniteElement):
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
-        detJ, Jinv = self.geo_basis.compute_transform(geo)
-        soln_phys = self.soln_basis.transform(detJ, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
+        detJ, J, Jinv = self.geo_basis.compute_transform(geo)
+        soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
+        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         # Add to the physics
         soln_phys.update(
@@ -242,9 +242,9 @@ class MITCElementOutput(am.Component):
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
-        detJ, Jinv = self.geo_basis.compute_transform(geo)
-        soln_phys = self.soln_basis.transform(detJ, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, Jinv, data_xi)
+        detJ, J, Jinv = self.geo_basis.compute_transform(geo)
+        soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
+        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         # Add to the physics
         soln_phys.update(

@@ -329,6 +329,10 @@ class Mesh:
     def get_num_elements(self, name, etype):
         return self.parser.get_conn(name, etype).shape[0]
 
+    def get_edge_conn(self, name, etype):
+        conn, signs = self.parser.get_conn_edges(name, etype)
+        return conn, signs
+
     def plot(self, u, **kwargs):
         """Plot the finite element solution on the mesh"""
         plot(self, u, **kwargs)
