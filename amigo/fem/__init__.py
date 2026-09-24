@@ -1,10 +1,8 @@
 from .fem import Problem, Mesh, FiniteElement
-from .basis import (
-    SolutionSpace,
-    dot_product,
-    curl_2d,
-    mat_vec,
-    mat_vec_transpose,
+from .fem_space import SolutionSpace
+from .basis import dot_product, curl_2d, mat_vec, mat_vec_transpose
+
+from .quadrature import (
     LineQuadrature,
     TriangleQuadrature,
     QuadQuadrature,

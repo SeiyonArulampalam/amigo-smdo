@@ -3,6 +3,10 @@ import numpy as np
 from . import basis
 from .connectivity import InpParser, BdfParser
 from .element import FiniteElement, FiniteElementOutput
+from .fem_space import SolutionSpace
+from .basis import make_basis
+from .mesh import Mesh
+from .quadrature import make_quadrature, ReducedQuadQuadrature
 from .plot_utils import plot
 from pathlib import Path
 
@@ -277,74 +281,13 @@ class DegreesOfFreedom:
         return self.mesh.get_quadrature(etype)
 
 
-class Mesh:
-    def __init__(self, filename: str):
-        ext = Path(filename).suffix
-        if ext == ".inp" or ext == ".INP":
-            self.parser = InpParser()
-            self.parser.parse_inp(filename)
-        elif ext == ".bdf" or ext == ".BDF":
-            self.parser = BdfParser(filename)
-        else:
-            raise ValueError(f"Unrecognized file extension {ext}")
-
-        self.X = self.parser.get_nodes()
-
-    def get_num_nodes(self):
-        return self.X.shape[0]
-
-    def get_domains(self):
-        """
-        Get a dictionary of the element types for each domain, indexed by the name
-        of each domain
-        """
-        return self.parser.get_domains()
-
-    def get_conn(self, name, etype):
-        """
-        Get the connectivity for the given domain name with the given element type
-        """
-        return self.parser.get_conn(name, etype)
-
-    def get_basis(self, space, etype, kind):
-        """
-        Get an instance of a Basis class that is matched to the solution space, element
-        type and kind of quantity
-        """
-        return self.parser.get_basis(space, etype, kind=kind)
-
-    def get_quadrature(self, etype):
-        """
-        Get an instance of Quadrature that is matched to the element type
-        """
-        return self.parser.get_quadrature(etype)
-
-    def get_nodes_in_domain(self, name):
-        """
-        Get nodes in the specified domain for all element types (if etype == None),
-        or a specific element type.
-        """
-        return self.parser.get_nodes_in_domain(name)
-
-    def get_num_elements(self, name, etype):
-        return self.parser.get_conn(name, etype).shape[0]
-
-    def get_edge_conn(self, name, etype):
-        conn, signs = self.parser.get_conn_edges(name, etype)
-        return conn, signs
-
-    def plot(self, u, **kwargs):
-        """Plot the finite element solution on the mesh"""
-        plot(self, u, **kwargs)
-
-
 class Problem:
     def __init__(
         self,
         mesh,
-        soln_space: basis.SolutionSpace,
-        data_space: basis.SolutionSpace,
-        geo_space: basis.SolutionSpace,
+        soln_space: SolutionSpace,
+        data_space: SolutionSpace,
+        geo_space: SolutionSpace,
         integrand_map=None,
         integrand_formulation="potential",
         output_map=None,
@@ -426,37 +369,38 @@ class Problem:
             integrand = self.integrand_map[integrand_name]["integrand"]
             integration_rule = self.integrand_map[integrand_name].get("rule", None)
 
-            # Figure out the element types that we need
-            etypes = []
+            # Figure out the cell types that we need
+            ctypes = []
             for target in targets:
-                for etype in domains[target]:
-                    if not etype in etypes:
-                        etypes.append(etype)
+                for ctype in domains[target]:
+                    if not ctype in ctypes:
+                        ctypes.append(ctype)
 
             # Loop over the element types for this integrand
-            for etype in etypes:
-                if (integrand_name, etype) in self.element_objs:
+            for ctype in ctypes:
+                if (integrand_name, ctype) in self.element_objs:
                     continue
 
                 # Set the element name
-                elem_name = f"Element{integrand_name}{etype}"
+                elem_name = f"Element{integrand_name}{ctype.name}"
 
                 # Get the basis objects for the element type
                 test_basis = None
                 if self.test_dof is not None:
-                    test_basis = self.test_dof.get_basis(etype)
-                soln_basis = self.soln_dof.get_basis(etype)
-                data_basis = self.data_dof.get_basis(etype)
-                geo_basis = self.geo_dof.get_basis(etype)
+                    test_basis = make_basis(self.soln_space, ctype, kind="multiplier")
+
+                soln_basis = make_basis(self.soln_space, ctype, kind="input")
+                geo_basis = make_basis(self.geo_space, ctype, kind="data")
+                data_basis = make_basis(self.data_space, ctype, kind="data")
 
                 # reduced integration option if rule is given
                 if integration_rule == ["reduced"]:
                     # override get quadrature with custom quadrature
-                    quadrature = basis.ReducedQuadQuadrature()
+                    quadrature = ReducedQuadQuadrature()
                 elif integration_rule is not None:
                     raise ValueError("Non-standard integration rule not supported")
                 else:
-                    quadrature = self.soln_dof.get_quadrature(etype)
+                    quadrature = make_quadrature(self.soln_space, ctype)
 
                 # Create the element object
                 obj = FiniteElement(
@@ -470,7 +414,7 @@ class Problem:
                 )
 
                 # Set this into the element dictionary
-                self.element_objs[(integrand_name, etype)] = obj
+                self.element_objs[(integrand_name, ctype)] = obj
 
         return
 
@@ -485,26 +429,26 @@ class Problem:
             output_func = self.output_map[out_name]["function"]
 
             # Figure out the element types we need
-            etypes = []
+            ctypes = []
             for target in targets:
-                for etype in domains[target]:
-                    if not etype in etypes:
-                        etypes.append(etype)
+                for ctype in domains[target]:
+                    if not ctype in ctypes:
+                        ctypes.append(ctype)
 
             # Loop over the element types for generating the output function
-            for etype in etypes:
-                if (out_name, etype) in self.element_objs:
+            for ctype in ctypes:
+                if (out_name, ctype) in self.element_objs:
                     continue
 
-                elem_name = f"ElementOutput{out_name}{etype}"
+                elem_name = f"ElementOutput{out_name}{ctype.name}"
 
                 # Get the basis objects for the element type
-                soln_basis = self.soln_dof.get_basis(etype)
-                data_basis = self.data_dof.get_basis(etype)
-                geo_basis = self.geo_dof.get_basis(etype)
+                soln_basis = make_basis(self.soln_space, ctype, kind="input")
+                geo_basis = make_basis(self.geo_space, ctype, kind="data")
+                data_basis = make_basis(self.data_space, ctype, kind="data")
 
                 # Create the quadrature instance
-                quadrature = self.soln_dof.get_quadrature(etype)
+                quadrature = make_quadrature(self.soln_space, ctype)
 
                 # Create the output object
                 obj = FiniteElementOutput(
@@ -518,7 +462,7 @@ class Problem:
                 )
 
                 # Set this into the output dictionary
-                self.output_objs[(out_name, etype)] = obj
+                self.output_objs[(out_name, ctype)] = obj
 
         return
 
