@@ -6,28 +6,10 @@ from .element import FiniteElement, FiniteElementOutput
 from .fem_space import SolutionSpace
 from .basis import make_basis
 from .mesh import Mesh
+from .dof_handler import DegreesOfFreedom, DofSource
 from .quadrature import make_quadrature, ReducedQuadQuadrature
 from .plot_utils import plot
 from pathlib import Path
-
-
-class DofSource(am.Component):
-    def __init__(self, input_names=[], data_names=[], con_names=[], output_names=[]):
-        super().__init__()
-
-        # Geo and data added as data to the component
-        for name in data_names:
-            self.add_data(name)
-
-        # Add inputs and constraints
-        for name in input_names:
-            self.add_input(name)
-        for name in con_names:
-            self.add_constraint(name)
-        for name in output_names:
-            self.add_output(name)
-
-        return
 
 
 class ScaledBC(am.Component):
@@ -170,115 +152,6 @@ class BoundaryConditions:
                             f"{self.bc_name}.{name}_right",
                             src_indices=nodes_right,
                         )
-
-
-class DegreesOfFreedom:
-    def __init__(self, mesh, space, kind="input", name="src"):
-        """
-        Allocate the degrees of freedom on the mesh
-        """
-
-        self.mesh = mesh
-        self.space = space
-        self.kind = kind
-        self.name = name
-
-        return
-
-    def _add_h1_source(self, model):
-        names = self.space.get_names("H1")
-        if len(names) == 0:
-            return
-
-        input_names, data_names, con_names = [], [], []
-        if self.kind == "input":
-            input_names = names
-        elif self.kind == "data":
-            data_names = names
-        elif self.kind == "multiplier":
-            con_names = [f"res_{name}" for name in names]
-
-        # Create the source component
-        dof_src = DofSource(
-            input_names=input_names, con_names=con_names, data_names=data_names
-        )
-
-        # Add global mesh source component
-        nnodes = self.mesh.get_num_nodes()
-        model.add_component(self.name, nnodes, dof_src)
-
-        return
-
-    def _link_h1(self, model, domain, etype, elem_name):
-        names = self.space.get_names("H1")
-        if len(names) == 0:
-            return
-
-        if self.kind == "multiplier":
-            con_names = [f"res_{name}" for name in names]
-            names = con_names
-
-        conn = self.mesh.get_conn(domain, etype)
-        for name in names:
-            model.link(
-                f"{self.name}.{name}",
-                f"{elem_name}.{name}",
-                src_indices=conn,
-            )
-
-        return name
-
-    def _link_const(self, model, domain, elem_name):
-        for name in self.space.get_names("const"):
-            model.link(
-                f"{self.name}.{name}.{domain}",
-                f"{elem_name}.{name}[:]",
-            )
-
-    def _add_const_source(self, model):
-        names = self.space.get_names("const")
-        if len(names) == 0:
-            return
-
-        # Create a sub-model for each data set
-        sub_model = am.Model()
-        for data_name in names:
-
-            domains = self.mesh.get_domains()
-
-            domain_names = [name for name in domains]
-            input_names, data_names, con_names = [], [], []
-            if self.kind == "input":
-                input_names = domain_names
-            elif self.kind == "data":
-                data_names = domain_names
-            elif self.kind == "multiplier":
-                con_names = [f"res_{name}" for name in domain_names]
-
-            dof_src = DofSource(
-                input_names=input_names, con_names=con_names, data_names=data_names
-            )
-            sub_model.add_component(data_name, 1, dof_src)
-
-        model.add_model(self.name, sub_model)
-
-        return
-
-    def add_source(self, model):
-        self._add_h1_source(model)
-        self._add_const_source(model)
-        return
-
-    def link_dof(self, model, domain, etype, elem_name):
-        self._link_h1(model, domain, etype, elem_name)
-        self._link_const(model, domain, elem_name)
-        return
-
-    def get_basis(self, etype):
-        return self.mesh.get_basis(self.space, etype, kind=self.kind)
-
-    def get_quadrature(self, etype):
-        return self.mesh.get_quadrature(etype)
 
 
 class Problem:
@@ -487,22 +360,22 @@ class Problem:
             targets = self.integrand_map[integrand_name]["target"]
 
             for target in targets:
-                for etype in domains[target]:
-                    elem = self.element_objs[(integrand_name, etype)]
-                    comp_name = f"Element{integrand_name}{etype}{target}"
+                for ctype in domains[target]:
+                    elem = self.element_objs[(integrand_name, ctype)]
+                    comp_name = f"Element{integrand_name}{ctype.name}{target}"
 
                     # Add the element/component
                     nelems = self.mesh.get_num_elements(target, etype)
                     model.add_component(comp_name, nelems, elem)
 
                     # Link all the element dof to the component
-                    self.soln_dof.link_dof(model, target, etype, comp_name)
-                    self.data_dof.link_dof(model, target, etype, comp_name)
-                    self.geo_dof.link_dof(model, target, etype, comp_name)
+                    self.soln_dof.link_dof(model, target, ctype, comp_name)
+                    self.data_dof.link_dof(model, target, ctype, comp_name)
+                    self.geo_dof.link_dof(model, target, ctype, comp_name)
 
                     # Link the constraints (if using the weak formulation)
                     if self.test_dof is not None:
-                        self.test_dof.link_dof(model, target, etype, comp_name)
+                        self.test_dof.link_dof(model, target, ctype, comp_name)
 
         # Add BC components and links
         for bc in self.boundary_conditions:

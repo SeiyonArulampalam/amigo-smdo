@@ -1,13 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 
-"""
-dim = 0 -> entity = point   (0-D)
-dim = 1 -> entity = edge    (1-D)
-dim = 2 -> entity = face    (2-D)
-dim = 3 -> entity = volume  (3-D)
-"""
-
 
 class CellType(Enum):
     POINT = auto()
@@ -28,50 +21,6 @@ class ReferenceCell:
     edges: tuple[tuple[int, int], ...] = ()
     faces: tuple[tuple[int, ...], ...] = ()
     face_types: tuple[CellType, ...] = ()
-
-    def num_entities(self, dim: int) -> int:
-        return len(self.entity_vertices(dim))
-
-    def entity_vertices(self, dim: int) -> tuple[tuple[int, ...], ...]:
-        """Return the local vertices defining each entity of dimension `dim`."""
-        if dim < 0 or dim > self.dimension:
-            raise ValueError(
-                f"{self.cell_type.name} has no entities of dimension {dim}"
-            )
-
-        if dim == self.dimension:
-            return (tuple(range(len(self.vertices))),)
-
-        if dim == 0:
-            return tuple((i,) for i in range(len(self.vertices)))
-
-        if dim == 1:
-            return self.edges
-
-        if dim == 2:
-            return self.faces
-
-        raise ValueError(f"{self.cell_type.name} has no entities of dimension {dim}")
-
-    def entity_type(self, dim: int, entity: int) -> CellType:
-        entities = self.entity_vertices(dim)
-
-        if not 0 <= entity < len(entities):
-            raise IndexError(f"Entity {entity} is invalid for dimension {dim}")
-
-        if dim == self.dimension:
-            return self.cell_type
-
-        if dim == 0:
-            return CellType.POINT
-
-        if dim == 1:
-            return CellType.SEGMENT
-
-        if dim == 2:
-            return self.face_types[entity]
-
-        raise ValueError(f"{self.cell_type.name} has no entities of dimension {dim}")
 
 
 REFERENCE_CELLS: dict[CellType, ReferenceCell] = {

@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from .cell_types import CellType
 
 
 class Space(Enum):
