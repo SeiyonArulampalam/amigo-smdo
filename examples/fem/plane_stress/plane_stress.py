@@ -9,8 +9,8 @@ import argparse
 def potential_plane_stress(soln, data=None, geo=None):
     """Strain energy density (integrand of TPE equation)"""
     # Displacement gradients in physical space
-    u_grad = soln["u"]["grad"]
-    v_grad = soln["v"]["grad"]
+    u_grad = soln["u"].grad
+    v_grad = soln["v"].grad
 
     # Strain components
     exx = u_grad[0]
@@ -31,8 +31,8 @@ def potential_plane_stress(soln, data=None, geo=None):
 
 def potential_traction(soln, data=None, geo=None):
     """External Work Line integral integrand"""
-    u = soln["u"]["value"]
-    v = soln["v"]["value"]
+    u = soln["u"].value
+    v = soln["v"].value
     # traction force for element
     # W = uT t
     tx = 0
@@ -116,8 +116,9 @@ print("Plotting...")
 u = x["soln.u"]
 v = x["soln.v"]
 
-fig, ax = plt.subplots(nrows=2)
-mesh.plot(u, ax=ax[0])
-mesh.plot(v, ax=ax[1])
+# fig, ax = plt.subplots(nrows=2)
+# mesh.plot(u, ax=ax[0])
+# mesh.plot(v, ax=ax[1])
 
+print(np.max(g[:]), np.min(g[:]))
 plt.show()

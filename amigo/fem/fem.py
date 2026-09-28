@@ -364,7 +364,7 @@ class Problem:
                     comp_name = f"Element{integrand_name}{ctype.name}{target}"
 
                     # Add the element/component
-                    nelems = self.mesh.get_num_elements(target, etype)
+                    nelems = self.mesh.get_num_elements(target, ctype)
                     model.add_component(comp_name, nelems, elem)
 
                     # Link all the element dof to the component

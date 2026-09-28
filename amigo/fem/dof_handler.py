@@ -1,44 +1,8 @@
 import amigo as am
 import numpy as np
-from dataclasses import dataclass
 from .fem_space import Space, Conformity, FunctionSpace, SolutionSpace
-from .cell_types import CellType, ReferenceCell, REFERENCE_CELLS
-from .basis import BasisCollection
+from .cell_types import CellType, DofLayout
 from .mesh import Mesh
-
-# class LagrangeH1Layout:
-#     def __init__(self, cell_type: CellType, degree: int = 1):
-#         self.cell_type = cell_type
-#         pts = self._build(cell_type, degree)
-
-#     def _build(self, cell_type: CellType, degree: int):
-#         ref = REFERENCE_CELLS[cell_type]
-
-#         # Convert the vertices to a numpy array
-#         verts = np.array(ref.vertices)
-
-#         # Add the vertex dof
-#         pts = []
-#         for v in range(len(ref.vertices)):
-#             pts.append(verts[v, :])
-
-#         # Add the edge dof
-#         for e in ref.edges:
-#             for i in range(1, degree):
-#                 u = 1.0 * i / (degree + 1)
-#                 p = (1.0 - u) * verts[e[0], :] + u * verts[e[1], :]
-#                 pts.append(p)
-
-#         # Add the face dof
-#         for face in ref.faces:
-#             if len(face) == 3:
-#                 # This is a triangle face
-#                 raise NotImplementedError
-#             else:  # len(face) == 4
-#                 raise NotImplementedError
-#         # Add any interior dof
-
-#         return pts
 
 
 class DofHandler:
@@ -163,26 +127,24 @@ class DofHandler:
 
                 for elem in range(nelem):
                     # Vertex DOFs
-                    for local_vertex, local_dofs in enumerate(layout.vertex_dofs):
-                        entity_id = int(vertex_conn[elem, local_vertex])
+                    for entity_dof, local_dof in enumerate(layout.vertex_dofs):
+                        entity_id = int(vertex_conn[elem, entity_dof])
 
-                        for entity_dof, local_dof in enumerate(local_dofs):
+                        key = self._make_entity_key(
+                            func_space=func_space,
+                            domain=domain,
+                            cell_type=cell_type,
+                            elem=elem,
+                            entity_id=entity_id,
+                            local_entity=entity_dof,
+                            entity_dof=entity_dof,
+                        )
 
-                            key = self._make_entity_key(
-                                func_space=func_space,
-                                domain=domain,
-                                cell_type=cell_type,
-                                elem=elem,
-                                entity_id=entity_id,
-                                local_entity=local_vertex,
-                                entity_dof=entity_dof,
-                            )
+                        if key not in vertex_dof:
+                            vertex_dof[key] = next_dof
+                            next_dof += 1
 
-                            if key not in vertex_dof:
-                                vertex_dof[key] = next_dof
-                                next_dof += 1
-
-                            conn[elem, local_dof] = vertex_dof[key]
+                        conn[elem, local_dof] = vertex_dof[key]
 
                     # Edge DOFs
                     for local_edge, local_dofs in enumerate(layout.edge_dofs):
@@ -304,10 +266,7 @@ class DofHandler:
         reference-element layouts.
         """
 
-        raise NotImplementedError(
-            "Connect _get_element_layout() to the reference "
-            "ElementDofLayout database."
-        )
+        return DofLayout.make(func_space, cell_type)
 
 
 class DofSource(am.Component):
@@ -330,26 +289,27 @@ class DofSource(am.Component):
 
 
 class DegreesOfFreedom:
-    def __init__(self, mesh: Mesh, space: SolutionSpace, kind="input", name="src"):
+    def __init__(
+        self, mesh: Mesh, solution_space: SolutionSpace, kind="input", name="src"
+    ):
         """
         Allocate the degrees of freedom on the mesh
         """
 
         self.mesh = mesh
-        self.space = space
+        self.solution_space = solution_space
         self.kind = kind
         self.name = name
 
         # Create the DOF handler
-        self.dof_handler = DofHandler(mesh, space)
+        self.dof_handler = DofHandler(mesh, solution_space)
 
         return
 
     def add_source(self, model: am.Model):
 
-        spaces = self.space.get_spaces()
-        for func_space in spaces:
-            names = self.space.get_names(func_space)
+        for space in self.solution_space.get_spaces():
+            names = self.solution_space.get_names(space)
             if len(names) == 0:
                 continue
 
@@ -368,7 +328,7 @@ class DegreesOfFreedom:
 
             # Get the number of degrees of freedom associated with the
             # associated space
-            ndof = self.dof_handler.get_num_dof(func_space)
+            ndof = self.dof_handler.get_num_dof(space)
 
             # Add the dof from the source mesh
             model.add_component(self.name, ndof, dof_src)
@@ -378,9 +338,8 @@ class DegreesOfFreedom:
     def link_dof(
         self, model: am.Model, domain: str, cell_type: CellType, elem_name: str
     ):
-        spaces = self.space.get_spaces()
-        for func_space in spaces:
-            names = self.space.get_names(func_space)
+        for space in self.solution_space.get_spaces():
+            names = self.solution_space.get_names(space)
             if len(names) == 0:
                 continue
 
@@ -389,12 +348,26 @@ class DegreesOfFreedom:
                 names = con_names
 
             # Get the connectivity for the function space
-            conn = self.dof_handler.get_dof_conn(func_space, domain, cell_type)
+            conn = self.dof_handler.get_dof_conn(space, domain, cell_type)
 
             # Link the degrees of freedom
-            for name in names:
-                model.link(
-                    f"{self.name}.{name}", f"{elem_name}.{name}", src_indices=conn
-                )
+            if space.func_space == Space.HDIV:
+                for name in names:
+                    model.link(
+                        f"{self.name}.{name}",
+                        f"{elem_name}.{name}[:, 0, :]",
+                        src_indices=conn,
+                    )
+                for name in names:
+                    model.link(
+                        f"{self.name}.{name}",
+                        f"{elem_name}.{name}[:, 1, :]",
+                        src_indices=conn,
+                    )
+            else:
+                for name in names:
+                    model.link(
+                        f"{self.name}.{name}", f"{elem_name}.{name}", src_indices=conn
+                    )
 
             # TODO: Add the signs for H(div) here...

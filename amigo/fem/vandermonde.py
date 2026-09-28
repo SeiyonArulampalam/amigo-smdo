@@ -10,13 +10,13 @@ class Vandermonde1D:
         self.C = self._build_vandermonde(self.p, self.pts)
 
     def _eval_polynomials(self, p, xi):
-        pows = np.ones(p + 1)
+        pows = np.ones(p + 1, dtype=float)
         for i in range(1, p + 1):
             pows[i] = pows[i - 1] * xi
         return pows
 
     def _eval_polynomial_grad(self, p, xi):
-        pows = np.ones(p + 1)
+        pows = np.ones(p + 1, dtype=float)
         for i in range(1, p + 1):
             pows[i] = pows[i - 1] * xi
 
@@ -29,7 +29,7 @@ class Vandermonde1D:
         n = p + 1
         V = np.zeros((n, n), dtype=float)
         for a, xi in enumerate(pts):
-            V[a, :] = self._eval_polynomials(p, xi)
+            V[a, :] = self._eval_polynomials(p, xi[0])
 
         # Compute C = V^{-1}
         I = np.eye(n, dtype=float)

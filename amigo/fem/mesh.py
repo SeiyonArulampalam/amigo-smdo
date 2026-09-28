@@ -37,3 +37,6 @@ class Mesh:
 
     def get_num_elements(self, name, cell_type):
         return self.parser.get_conn(name, cell_type).shape[0]
+
+    def get_nodes_in_domain(self, elset):
+        return self.parser.get_nodes_in_domain(elset)

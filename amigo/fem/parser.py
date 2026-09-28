@@ -87,13 +87,13 @@ class InpParser:
 
         conn = []
         for elem_type in self.elem_conn[elset]:
-            cell_type = self.elem_type_map[elem_type]
-            conn.extend(self.get_conn(elset, cell_type).flatten())
+            # cell_type = self.elem_type_map[elem_type]
+            conn.extend(self.get_conn(elset, elem_type).flatten())
 
         # Single unique list of nodes preserving GMSH ordering
         return np.array(list(dict.fromkeys(conn)))
 
-    def get_conn_edges(self, elset, cell_type: CellType):
+    def get_edge_conn(self, elset, cell_type: CellType):
         conn = self.get_conn(elset, cell_type)
         local_edges = REFERENCE_CELLS[cell_type].edges
 
@@ -224,30 +224,3 @@ class BdfParser:
         node_list = np.array(list(dict.fromkeys(conn)))
 
         return node_list
-
-    def get_basis(self, space, etype, kind):
-        basis_list = []
-
-        for sp in ["H1", "const"]:
-            names = space.get_names(sp)
-
-            if len(names) == 0:
-                continue
-
-            basis_list.append(self._get_basis(etype, sp, names, kind))
-
-        return basis.BasisCollection(basis_list)
-
-    def _get_basis(self, etype, space, names=[], kind="input"):
-        if (etype == "CQUAD4" or etype == "CQUADR") and space == "H1":
-            return basis.QuadLagrangeBasis(1, names, kind=kind)
-
-        raise NotImplementedError(
-            f"Basis for element {etype} with space {space} not implemented"
-        )
-
-    def get_quadrature(self, etype):
-        if etype == "CQUAD4" or etype == "CQUADR":
-            return basis.QuadQuadrature(2)
-
-        raise NotImplementedError(f"Quadrature for element {etype} not implemented")
