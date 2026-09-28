@@ -1,7 +1,6 @@
 import amigo as am
 import numpy as np
 from . import basis
-from .connectivity import InpParser, BdfParser
 from .element import FiniteElement, FiniteElementOutput
 from .fem_space import SolutionSpace
 from .basis import make_basis

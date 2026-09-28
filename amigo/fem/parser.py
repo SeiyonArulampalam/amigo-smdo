@@ -2,8 +2,6 @@ import numpy as np
 import re
 from .cell_types import CellType, REFERENCE_CELLS
 
-# from visualization import plot_tri_mesh
-
 
 class InpParser:
     def __init__(self):
@@ -253,15 +251,3 @@ class BdfParser:
             return basis.QuadQuadrature(2)
 
         raise NotImplementedError(f"Quadrature for element {etype} not implemented")
-
-
-# if __name__ == "__main__":
-#     p = InpParser()
-#     p.parse_inp("mesh.inp")
-#     X = p.get_nodes()
-#     conn = p.get_conn("SURFACE1", CellType.TRIANGLE)
-#     edge_conn, edge_signs = p.get_conn_edges("SURFACE1", CellType.TRIANGLE)
-#     domains = p.get_domains()
-#     print(list(domains.keys()))
-#     print(domains["SURFACE1"])
-#     plot_tri_mesh(X, conn, edge_conn, edge_signs)

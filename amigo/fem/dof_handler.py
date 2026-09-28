@@ -6,87 +6,39 @@ from .cell_types import CellType, ReferenceCell, REFERENCE_CELLS
 from .basis import BasisCollection
 from .mesh import Mesh
 
+# class LagrangeH1Layout:
+#     def __init__(self, cell_type: CellType, degree: int = 1):
+#         self.cell_type = cell_type
+#         pts = self._build(cell_type, degree)
 
-@dataclass
-class EntityDofLayout:
-    # Function space type
-    space: FunctionSpace
+#     def _build(self, cell_type: CellType, degree: int):
+#         ref = REFERENCE_CELLS[cell_type]
 
-    # Local degree of freedom number
-    dof: tuple[int]
+#         # Convert the vertices to a numpy array
+#         verts = np.array(ref.vertices)
 
-    # Points in parametric space where the degrees of freedom are located
-    pts: tuple[tuple[float, ...], ...]
+#         # Add the vertex dof
+#         pts = []
+#         for v in range(len(ref.vertices)):
+#             pts.append(verts[v, :])
 
-    # Directions associated with vector elements
-    dirs: tuple[tuple[float, ...] | None, ...]
+#         # Add the edge dof
+#         for e in ref.edges:
+#             for i in range(1, degree):
+#                 u = 1.0 * i / (degree + 1)
+#                 p = (1.0 - u) * verts[e[0], :] + u * verts[e[1], :]
+#                 pts.append(p)
 
-    # Entity dofs associated with the vertices, edges, faces and interior points.
-    # Dof are ordered as follows: vertice, edges, faces then interior dof
-    vertex_dofs: tuple[tuple[int, ...], ...]
-    edge_dofs: tuple[tuple[int, ...], ...]
-    face_dofs: tuple[tuple[int, ...], ...]
-    interior_dofs: tuple[int, ...]
+#         # Add the face dof
+#         for face in ref.faces:
+#             if len(face) == 3:
+#                 # This is a triangle face
+#                 raise NotImplementedError
+#             else:  # len(face) == 4
+#                 raise NotImplementedError
+#         # Add any interior dof
 
-
-@dataclass
-class ElementDofLayout:
-    # Reference cell that defines the cell type
-    ref_cell: ReferenceCell
-
-    # Layouts for each of the finite-element spaces that belong to this element
-    layouts: tuple[EntityDofLayout]
-
-    def make_basis(self):
-        objs = []
-
-        for layout in self.layouts:
-            p = layout.space.degree
-            if layout.space.func_space == Space.H1:
-                basis = make_lagrange_basis(self.ref_cell, p, layout.pts)
-            elif layout.space.func_space == Space.HDIV:
-                basis = make_hdiv_basis(self.ref_cell, p, layout.pts, layout.dirs)
-            else:
-                raise NotImplementedError(layout.space.func_space)
-
-            objs.append(basis)
-
-        return BasisCollection(objs)
-
-
-class LagrangeH1Layout:
-    def __init__(self, cell_type: CellType, degree: int = 1):
-        self.cell_type = cell_type
-        pts = self._build(cell_type, degree)
-
-    def _build(self, cell_type: CellType, degree: int):
-        ref = REFERENCE_CELLS[cell_type]
-
-        # Convert the vertices to a numpy array
-        verts = np.array(ref.vertices)
-
-        # Add the vertex dof
-        pts = []
-        for v in range(len(ref.vertices)):
-            pts.append(verts[v, :])
-
-        # Add the edge dof
-        for e in ref.edges:
-            for i in range(1, degree):
-                u = 1.0 * i / (degree + 1)
-                p = (1.0 - u) * verts[e[0], :] + u * verts[e[1], :]
-                pts.append(p)
-
-        # Add the face dof
-        for face in ref.faces:
-            if len(face) == 3:
-                # This is a triangle face
-                raise NotImplementedError
-            else:  # len(face) == 4
-                raise NotImplementedError
-        # Add any interior dof
-
-        return pts
+#         return pts
 
 
 class DofHandler:
@@ -185,10 +137,7 @@ class DofHandler:
         next_dof = 0
 
         for domain in self.mesh.get_domains():
-            breakpoint()
-
             for cell_type in self.mesh.get_cell_types(domain):
-                breakpoint()
                 layout = self._get_element_layout(func_space, cell_type)
                 vertex_conn = self.mesh.get_vertex_conn(domain, cell_type)
                 nelem = vertex_conn.shape[0]

@@ -7,7 +7,6 @@ from .quadrature import (
     TriangleQuadrature,
     QuadQuadrature,
 )
-from .connectivity import InpParser
 from .element import (
     FiniteElement,
     FiniteElementOutput,
@@ -26,7 +25,6 @@ __all__ = [
     MITCElement,
     MITCElementOutput,
     SolutionSpace,
-    InpParser,
     plot,
     plot_mesh,
     dot_product,

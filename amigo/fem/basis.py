@@ -1,8 +1,18 @@
 import amigo as am
 import numpy as np
+from dataclasses import dataclass
 from .fem_space import Space, SolutionSpace
 from .cell_types import CellType
 from .vandermonde import Vandermonde1D, Vandermonde2D, VecVandermonde2D
+from .fem_space import FunctionSpace
+from .cell_types import (
+    CellType,
+    ReferenceCell,
+    REFERENCE_CELLS,
+    make_h1_dofs,
+    make_hdiv_dofs,
+)
+from ..expressions import Expr
 
 
 def dot_product(x, y, n=1):
@@ -31,13 +41,56 @@ def mat_vec_transpose(A, x, m=1, n=1):
     return [A[0][0] * x[0] + A[1][0] * x[1], A[0][1] * x[0] + A[1][1] * x[1]]
 
 
+@dataclass(frozen=True)
+class DofLayout:
+    # Reference cell that defines the cell type
+    ref_cell: ReferenceCell
+
+    # Function space type
+    space: FunctionSpace
+
+    # Points in parametric space where the degrees of freedom are located
+    pts: tuple[tuple[float, ...], ...] = ()
+
+    # Directions associated with vector elements
+    dirs: tuple[tuple[float, ...] | None, ...] = ()
+
+    # Entity dofs associated with the vertices, edges, faces and interior points.
+    # Dof are ordered as follows: vertice, edges, faces then interior dof
+    vertex_dofs: tuple[tuple[int, ...], ...] = ()
+    edge_dofs: tuple[tuple[int, ...], ...] = ()
+    face_dofs: tuple[tuple[int, ...], ...] = ()
+    interior_dofs: tuple[int, ...] = ()
+
+    @property
+    def ndof(self):
+        return len(self.pts)
+
+
+@dataclass
+class ConstValue:
+    value: Expr
+
+
+@dataclass
+class H1Value:
+    value: Expr
+    grad: list[Expr]
+
+
+@dataclass
+class HdivValue:
+    vec: list[Expr]
+    div: Expr
+
+
 class Basis:
-    def __init__(self, names, nnodes=1, kind="input"):
+    def __init__(self, names: list[str], layout: DofLayout, kind: str = "input"):
         if isinstance(names, (list, tuple)):
             self.names = names
         elif isinstance(names, str):
             self.names = [names]
-        self.nnodes = nnodes
+        self.layout = layout
         self.kind = kind
 
         if not (
@@ -48,28 +101,29 @@ class Basis:
     def add_declarations(self, comp):
         """Add the declarations to the component"""
 
+        nnodes = self.layout.ndof
         if self.kind == "input":
             for name in self.names:
-                comp.add_input(name, shape=(self.nnodes,))
+                comp.add_input(name, shape=(nnodes,))
         elif self.kind == "data":
             for name in self.names:
-                comp.add_data(name, shape=(self.nnodes,))
+                comp.add_data(name, shape=(nnodes,))
         elif self.kind == "multiplier":
             for name in self.names:
-                comp.add_constraint(f"res_{name}", shape=(self.nnodes,))
+                comp.add_constraint(f"res_{name}", shape=(nnodes,))
 
 
 class ConstantBasis(Basis):
-    def __init__(self, names, nnodes=1, kind="input"):
-        super().__init__(names, nnodes=nnodes, kind=kind)
+    def __init__(self, names, space, kind="input"):
+
+        layout = DofLayout(ref_cell=CellType.POINT, space=space, pts=([0.0]))
+        super().__init__(names, layout=layout, kind=kind)
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
-            value = orig[name]["value"]
-            soln[name] = {
-                "value": value,
-            }
+            value = orig[name].value
+            soln[name] = ConstValue(value=value)
         return soln
 
     def eval(self, comp, pt):
@@ -82,9 +136,8 @@ class ConstantBasis(Basis):
             elif self.kind == "multiplier":
                 u = comp.constraints.get_multipliers()[f"res_{name}"]
 
-            soln[name] = {
-                "value": u[0],
-            }
+            soln[name] = ConstValue(value=u[0])
+
         return soln
 
 
@@ -100,20 +153,18 @@ class LagrangeBasis1D(Basis):
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
-            value = orig[name]["value"]
-            grad = orig[name]["grad"]
-            soln[name] = {
-                "value": value,
-                "grad": [Jinv * grad[0]],
-            }
+            value = orig[name].value
+            grad = orig[name].value
+            soln[name] = H1Value(value=value, grad=[Jinv * grad[0]])
+
         return soln
 
     def compute_transform(self, geo):
         if "x" not in geo or "y" not in geo:
             raise ValueError("Coordinates not defined")
 
-        x_xi = geo["x"]["grad"][0]
-        y_xi = geo["y"]["grad"][0]
+        x_xi = geo["x"].grad[0]
+        y_xi = geo["y"].grad[1]
 
         detJ = am.sqrt(x_xi**2 + y_xi**2)
         Jinv = 1.0 / detJ
@@ -136,27 +187,27 @@ class LagrangeBasis1D(Basis):
             elif self.kind == "multiplier":
                 u = comp.constraints.get_multipliers()[f"res_{name}"]
 
-            soln[name] = {
-                "value": dot_product(u, N, n=self.nnodes),
-                "grad": [dot_product(u, Nx, n=self.nnodes)],
-            }
+            soln[name] = H1Value(
+                value=dot_product(u, N, n=self.nnodes),
+                grad=[dot_product(u, Nx, n=self.nnodes)],
+            )
 
         return soln
 
 
 class LagrangeBasis2D(Basis):
-    def __init__(self, names, nnodes=1, kind="input"):
+    def __init__(self, names: list[str], space: FunctionSpace, kind="input"):
+
         super().__init__(names, nnodes=nnodes, kind=kind)
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
-            value = orig[name]["value"]
-            grad = orig[name]["grad"]
-            soln[name] = {
-                "value": value,
-                "grad": mat_vec_transpose(Jinv, grad, n=2, m=2),
-            }
+            value = orig[name].value
+            grad = orig[name].grad
+            soln[name] = H1Value(
+                value=value, grad=mat_vec_transpose(Jinv, grad, n=2, m=2)
+            )
 
         return soln
 
@@ -164,8 +215,8 @@ class LagrangeBasis2D(Basis):
         if "x" not in geo or "y" not in geo:
             raise ValueError("Coordinates not defined")
 
-        x_xi, x_eta = geo["x"]["grad"]
-        y_xi, y_eta = geo["y"]["grad"]
+        x_xi, x_eta = geo["x"].grad
+        y_xi, y_eta = geo["y"].grad
 
         detJ = x_xi * y_eta - x_eta * y_xi
         J = [[x_xi, x_eta], [y_xi, y_eta]]
@@ -176,13 +227,29 @@ class LagrangeBasis2D(Basis):
 
 
 class TriangleLagrangeBasis(LagrangeBasis2D):
-    def __init__(self, p, names, kind="input"):
+    def __init__(self, names: list[str], space: FunctionSpace, kind: str = "input"):
+        p = space.degree
         if p < 0:
             raise ValueError(f"Degree {p} must be >= 0")
 
-        self.p = p
-        nnodes = (p + 1) * (p + 2) // 2
-        super().__init__(names, nnodes=nnodes, kind=kind)
+        ref_cell = REFERENCE_CELLS[CellType.TRIANGLE]
+
+        pts, dirs, vertex_dofs, edge_dofs, face_dofs, interior_dofs = make_h1_dofs(
+            ref_cell, p
+        )
+
+        layout = DofLayout(
+            ref_cell=ref_cell,
+            space=space,
+            pts=pts,
+            dirs=dirs,
+            vertex_dofs=vertex_dofs,
+            edge_dofs=edge_dofs,
+            face_dofs=face_dofs,
+            interior_dofs=interior_dofs,
+        )
+
+        super().__init__(names, space, layout, kind=kind)
 
         self.pts = self._get_tri_nodes(self.p)
         self.exps = self._get_monomial_exponents(self.p)
@@ -245,13 +312,13 @@ class TriangleLagrangeBasis(LagrangeBasis2D):
             elif self.kind == "multiplier":
                 u = comp.constraints.get_multipliers()[f"res_{name}"]
 
-            soln[name] = {
-                "value": dot_product(u, N, n=self.nnodes),
-                "grad": [
+            soln[name] = H1Value(
+                value=dot_product(u, N, n=self.nnodes),
+                grad=[
                     dot_product(u, Nxi, n=self.nnodes),
                     dot_product(u, Neta, n=self.nnodes),
                 ],
-            }
+            )
 
         return soln
 
@@ -325,13 +392,13 @@ class QuadLagrangeBasis(LagrangeBasis2D):
             elif self.kind == "multiplier":
                 u = comp.constraints.get_multipliers()[f"res_{name}"]
 
-            soln[name] = {
-                "value": dot_product(u, N, n=self.nnodes),
-                "grad": [
+            soln[name] = H1Value(
+                value=dot_product(u, N, n=self.nnodes),
+                grad=[
                     dot_product(u, Nxi, n=self.nnodes),
                     dot_product(u, Neta, n=self.nnodes),
                 ],
-            }
+            )
 
         return soln
 
@@ -393,24 +460,18 @@ class RTBasis2D(Basis):
                 vy = vy + d[i] * N[1, i] * u[1, i]
                 div = div + d[i] * (Nxi[0, i] * u[0, i] + Neta[1, i] * u[0, i])
 
-            soln[name] = {
-                "vec": [vx, vy],
-                "div": div,
-            }
+            soln[name] = HdivValue(vec=[vx, vy], div=div)
 
         return soln
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
         for name in orig:
-            vec = orig[name]["vec"]
-            div = orig[name]["div"]
+            vec = orig[name].vec
+            div = orig[name].div
             vx = (J[0][0] * vec[0] + J[0][1] * vec[1]) / detJ
             vy = (J[1][0] * vec[0] + J[1][1] * vec[1]) / detJ
-            soln[name] = {
-                "vec": [vx, vy],
-                "div": div / detJ,
-            }
+            soln[name] = HdivValue(vec=[vx, vy], div=div / detJ)
 
         return soln
 
@@ -418,8 +479,8 @@ class RTBasis2D(Basis):
         if "x" not in geo or "y" not in geo:
             raise ValueError("Coordinates not defined")
 
-        x_xi, x_eta = geo["x"]["grad"]
-        y_xi, y_eta = geo["y"]["grad"]
+        x_xi, x_eta = geo["x"].grad
+        y_xi, y_eta = geo["y"].grad
 
         detJ = x_xi * y_eta - x_eta * y_xi
         J = [[x_xi, x_eta], [y_xi, y_eta]]
