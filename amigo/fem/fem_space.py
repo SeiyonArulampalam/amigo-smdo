@@ -64,3 +64,6 @@ class SolutionSpace:
             if field_name == name:
                 return space
         raise KeyError(f"Unknown field '{name}'")
+
+    # def get_layout(self, cell_type : CellType):
+    #     return Layout

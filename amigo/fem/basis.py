@@ -2,12 +2,20 @@ import amigo as am
 import numpy as np
 from .fem_space import Space, SolutionSpace
 from .cell_types import CellType
+from .vandermonde import Vandermonde1D, Vandermonde2D, VecVandermonde2D
 
 
 def dot_product(x, y, n=1):
     val = x[0] * y[0]
     for i in range(1, n):
         val = val + x[i] * y[i]
+    return val
+
+
+def triple_product(d, x, y, n=1):
+    val = d[0] * x[0] * y[0]
+    for i in range(1, n):
+        val = val + d[i] * x[i] * y[i]
     return val
 
 
@@ -21,83 +29,6 @@ def mat_vec(A, x, m=1, n=1):
 
 def mat_vec_transpose(A, x, m=1, n=1):
     return [A[0][0] * x[0] + A[1][0] * x[1], A[0][1] * x[0] + A[1][1] * x[1]]
-
-
-def eval_1d_monomials(p, xi):
-    pows = np.ones(p + 1)
-    for i in range(1, p + 1):
-        pows[i] = pows[i - 1] * xi
-    return pows
-
-
-def eval_1d_monomial_grad(p, xi):
-    pows = np.ones(p + 1)
-    for i in range(1, p + 1):
-        pows[i] = pows[i - 1] * xi
-
-    grad = np.zeros(p + 1)
-    for i in range(1, p + 1):
-        grad[i] = i * pows[i - 1]
-    return grad
-
-
-def build_1d_lagrange_vandermonde(p, pts):
-    n = p + 1
-    V = np.zeros((n, n), dtype=float)
-    for a, xi in enumerate(pts):
-        V[a, :] = eval_1d_monomials(p, xi)
-
-    # Compute C = V^{-1}
-    I = np.eye(n, dtype=float)
-    return np.linalg.solve(V, I)
-
-
-def eval_2d_monomials(p, xi, eta, exps):
-    """out[k] = xi^i * eta^j for each (i,j)."""
-    xi_pows = np.ones(p + 1)
-    eta_pows = np.ones(p + 1)
-
-    for a in range(1, p + 1):
-        xi_pows[a] = xi_pows[a - 1] * xi
-    for b in range(1, p + 1):
-        eta_pows[b] = eta_pows[b - 1] * eta
-
-    out = np.empty(len(exps), dtype=float)
-    for k, (i, j) in enumerate(exps):
-        out[k] = xi_pows[i] * eta_pows[j]
-
-    return out
-
-
-def eval_2d_monomial_grad(p, xi, eta, exps):
-    """grads[k] = [i * xi^{i-1} * eta^{j}, j * xi^{i} * eta^{j-1}]"""
-    xi_pows = np.ones(p + 1)
-    eta_pows = np.ones(p + 1)
-
-    for a in range(1, p + 1):
-        xi_pows[a] = xi_pows[a - 1] * xi
-    for b in range(1, p + 1):
-        eta_pows[b] = eta_pows[b - 1] * eta
-
-    grad = np.zeros((len(exps), 2), dtype=float)
-    for k, (i, j) in enumerate(exps):
-        if i > 0:
-            grad[k, 0] = i * xi_pows[i - 1] * eta_pows[j]
-        if j > 0:
-            grad[k, 1] = j * xi_pows[i] * eta_pows[j - 1]
-
-    return grad
-
-
-def build_2d_lagrange_vandermonde(n, p, pts, exps):
-    # Build Vandermonde: V[a,k] = m_k(node_a)
-    V = np.zeros((n, n), dtype=float)
-    for a, (xi, eta) in enumerate(pts):
-        V[a, :] = eval_2d_monomials(p, xi, eta, exps)
-
-    # Compute C = V^{-1}
-    I = np.eye(n, dtype=float)
-    return np.linalg.solve(V, I)
 
 
 class Basis:
@@ -164,7 +95,7 @@ class LagrangeBasis1D(Basis):
         super().__init__(names, nnodes=nnodes, kind=kind)
 
         self.pts = np.linspace(-1, 1, nnodes)
-        self.C = build_1d_lagrange_vandermonde(self.p, self.pts)
+        self.vand = Vandermonde1D(self.p, self.pts)
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
@@ -193,11 +124,9 @@ class LagrangeBasis1D(Basis):
         xi = pt[0]
 
         # Evaluate the monomials
-        m = eval_1d_monomials(self.p, xi)
-        N = m @ self.C
+        N = self.vand.eval_basis(xi)
+        Nx = self.vand.eval_basis_grad(xi)
 
-        mgrad = eval_1d_monomial_grad(self.p, xi)
-        Nx = mgrad @ self.C
         soln = {}
         for name in self.names:
             if self.kind == "input":
@@ -257,7 +186,7 @@ class TriangleLagrangeBasis(LagrangeBasis2D):
 
         self.pts = self._get_tri_nodes(self.p)
         self.exps = self._get_monomial_exponents(self.p)
-        self.C = build_2d_lagrange_vandermonde(self.nnodes, self.p, self.pts, self.exps)
+        self.vand = Vandermonde2D(nnodes, self.exps, self.pts)
 
         return
 
@@ -302,13 +231,10 @@ class TriangleLagrangeBasis(LagrangeBasis2D):
         eta = pt[1]
 
         # Evaluate the monomials
-        m = eval_2d_monomials(self.p, xi, eta, self.exps)
-        N = m @ self.C
+        N = self.vand.eval_basis(xi, eta)
 
         # Evaluate the derivatives of the monomials
-        mgrad = eval_2d_monomial_grad(self.p, xi, eta, self.exps)
-        Nxi = mgrad[:, 0] @ self.C
-        Neta = mgrad[:, 1] @ self.C
+        Nxi, Neta = self.vand.eval_basis_grad(xi, eta)
 
         soln = {}
         for name in self.names:
@@ -341,7 +267,7 @@ class QuadLagrangeBasis(LagrangeBasis2D):
 
         self.pts = self._get_quad_nodes(self.p)
         self.exps = self._get_monomial_exponents(self.p)
-        self.C = build_2d_lagrange_vandermonde(self.nnodes, self.p, self.pts, self.exps)
+        self.vand = Vandermonde2D(nnodes, self.exps, self.pts)
 
         return
 
@@ -385,13 +311,10 @@ class QuadLagrangeBasis(LagrangeBasis2D):
         eta = pt[1]
 
         # Evaluate the monomials
-        m = eval_2d_monomials(self.p, xi, eta, self.exps)
-        N = m @ self.C
+        N = self.vand.eval_basis(xi, eta)
 
         # Evaluate the derivatives of the monomials
-        mgrad = eval_2d_monomial_grad(self.p, xi, eta, self.exps)
-        Nxi = mgrad[:, 0] @ self.C
-        Neta = mgrad[:, 1] @ self.C
+        Nxi, Neta = self.vand.eval_basis_grad(xi, eta)
 
         soln = {}
         for name in self.names:
@@ -411,13 +334,6 @@ class QuadLagrangeBasis(LagrangeBasis2D):
             }
 
         return soln
-
-
-def triple_product(d, x, y, n=1):
-    val = d[0] * x[0] * y[0]
-    for i in range(1, n):
-        val = val + d[i] * x[i] * y[i]
-    return val
 
 
 class RTBasis2D(Basis):

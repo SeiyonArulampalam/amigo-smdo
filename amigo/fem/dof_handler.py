@@ -107,23 +107,14 @@ class DofHandler:
         self.space = space
 
         # Number of DOFs associated with each FunctionSpace
-        #
-        #   FunctionSpace -> int
-        #
         self._num_dof = {}
 
         # Element connectivity for each function space
-        #
         #   (FunctionSpace, domain, CellType) -> ndarray
-        #
-        # Each array has shape
-        #
-        #   (num_elements, num_element_dof)
-        #
+        # Each array has shape (num_elements, num_element_dof)
         self._dof_conn = {}
 
         # Orientation information associated with each element chunk.
-        #
         # These are mesh-topology orientations, not yet basis-specific
         # transformations.
         self._edge_orientation = {}
@@ -194,8 +185,10 @@ class DofHandler:
         next_dof = 0
 
         for domain in self.mesh.get_domains():
+            breakpoint()
 
             for cell_type in self.mesh.get_cell_types(domain):
+                breakpoint()
                 layout = self._get_element_layout(func_space, cell_type)
                 vertex_conn = self.mesh.get_vertex_conn(domain, cell_type)
                 nelem = vertex_conn.shape[0]
