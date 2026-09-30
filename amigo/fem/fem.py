@@ -3,7 +3,7 @@ from .cell_types import CellType, DofLayout, REFERENCE_CELLS
 import numpy as np
 from .element import FiniteElement, FiniteElementOutput
 from .fem_space import Space, SolutionSpace
-from .basis import make_basis
+from .basis import make_basis, TriangleRTBasis
 from .dof_handler import DofSource, DegreesOfFreedom, BoundaryConditions
 from .quadrature import make_quadrature, ReducedQuadQuadrature
 import pyvista as pv
@@ -403,3 +403,101 @@ class Problem:
         grid = pv.UnstructuredGrid({pv_cell_type: soln_conn}, points)
         grid.point_data[field] = np.asarray(x[field])
         return grid
+
+    def visualize_vec_field(self, x, field, domain):
+        coords, vecs = self._build_vec_grid(x, field, domain)
+        cloud = pv.PolyData(coords)
+        cloud["vectors"] = vecs
+
+        arrows = cloud.glyph(orient="vectors", scale="vectors", factor=2.0)
+        pl = pv.Plotter(theme=pv.themes.DarkTheme())
+        pl.add_mesh(arrows, cmap="plasma")
+        pl.view_xy()
+        pl.enable_parallel_projection()
+        pl.enable_2d_style()
+        pl.show()
+        return
+
+    def _build_vec_grid(self, x, field, domain):
+        ctype = CellType.TRIANGLE
+        soln_space = self.soln_dof.solution_space.get_spaces()[0]
+        dof_handler = self.soln_dof.get_dof_handler()
+        layout = DofLayout.make_layout(soln_space, ctype)
+        ndof_local = len(layout.pts)
+
+        # Map the number of local DOFs to the matching PyVista cell type.
+        pv_cell_type = {
+            3: pv.CellType.TRIANGLE,  # degree 1
+            6: pv.CellType.QUADRATIC_TRIANGLE,  # degree 2
+        }.get(ndof_local)
+
+        if pv_cell_type is None:
+            raise NotImplementedError(
+                "build_visualization_grid supports degree-1 and degree-2 H1 "
+                f"triangles (got degree={soln_space.degree}, "
+                f"ndof/elem={ndof_local})."
+            )
+
+        # Global DOF connectivity for the solution space: (nelem, ndof_local),
+        soln_conn = dof_handler.get_dof_conn(soln_space, domain, ctype)
+
+        # DOF signs for the H(div) space: (nelem, ndof_local)
+        signs = dof_handler.get_dof_signs(soln_space, domain, ctype)
+
+        # Global solution flux values indexed by global DOF number
+        u = np.asarray(x[field])
+
+        # P1 vertex connectivity and coordinates for the geometry
+        vertex_conn = self.mesh.get_vertex_conn(domain, ctype)  # (nelem, 3)
+        Xv = np.asarray(self.mesh.X)  # (nnodes, dim)
+        dim = Xv.shape[1]
+
+        # Vector Vandermonde for the RT triangle basis
+        vand = TriangleRTBasis([field], soln_space, kind="input").vand
+
+        # Use vec vandermonde at the center of the triangle (1/3, 1/3)
+        xi, eta = 1.0 / 3.0, 1.0 / 3.0
+
+        # Compute the basis functions at the center: shape (2, ndof_local)
+        N = vand.eval_basis(xi, eta)
+
+        nelem = soln_conn.shape[0]
+        centers = np.zeros((nelem, 3))
+        vectors = np.zeros((nelem, 3))
+
+        for e in range(nelem):
+            vcoords = Xv[vertex_conn[e]]  # (3, dim)
+
+            # Compute J for the affine H1 triangle map (constant over the cell)
+            n0_coords = vcoords[0]
+            n1_coords = vcoords[1]
+            n2_coords = vcoords[2]
+            x0 = n0_coords[0]
+            y0 = n0_coords[1]
+            x1 = n1_coords[0]
+            y1 = n1_coords[1]
+            x2 = n2_coords[0]
+            y2 = n2_coords[1]
+            J = np.array(
+                [
+                    [x1 - x0, x2 - x0],
+                    [y1 - y0, y2 - y0],
+                ]
+            )
+
+            # Compute detJ
+            detJ = J[0, 0] * J[1, 1] - J[0, 1] * J[1, 0]
+
+            # Compute the dot(N, soln): reference-space vector at the center
+            vref = np.dot(N, signs[e, :] * u[soln_conn[e, :]])
+
+            # Compute the piola transform (contravariant): v_phys = J @ vref / detJ
+            vphys = (J @ vref) / detJ
+
+            # Store the vector
+            vectors[e, : dim - 1] = vphys
+
+            # Compute the physical point using an affine transform for H1 triangle
+            centers[e, :dim] = vcoords.mean(axis=0)
+
+        return centers, vectors
