@@ -4,7 +4,17 @@ import amigo as am
 from scipy.sparse.linalg import spsolve
 from utils import write_vtu, get_exact_solution
 import time
-from amigo.fem import MITCElement, SolutionSpace, Mesh, Problem
+from amigo.fem import (
+    MITCElement,
+    SolutionSpace,
+    Mesh,
+    Problem,
+    CellType,
+    FunctionSpace,
+    Space,
+    make_basis,
+    make_quadrature,
+)
 from shell_element import (
     NaturalShellGeoBasis,
     ShellSolnBasis,
@@ -24,7 +34,6 @@ args = parser.parse_args()
 
 # Load the mesh
 mesh = Mesh("cylinder.inp")
-domains = mesh.get_domains()
 
 lateral_surfaces = ["SURFACE1"]
 bottom_line = "LINE3"
@@ -41,13 +50,12 @@ geo_space = SolutionSpace(
 )
 data_space = SolutionSpace({})
 
-etype = "CPS4"
-
-degree = 1
-soln_basis = ShellSolnBasis(degree, kind="input")
-geo_basis = NaturalShellGeoBasis(degree, ["x", "y", "z", "nx", "ny", "nz"], kind="data")
-quadrature = mesh.get_quadrature(etype)
-data_basis = mesh.get_basis(data_space, etype, kind="data")
+ctype = CellType.QUADRILATERAL
+space = FunctionSpace(func_space=Space.H1, degree=1)
+soln_basis = ShellSolnBasis(kind="input")
+geo_basis = NaturalShellGeoBasis(["x", "y", "z", "nx", "ny", "nz"], space, kind="data")
+quadrature = make_quadrature(soln_space, ctype)
+data_basis = make_basis(data_space, ctype, kind="data")
 mitc = MITC4ShellTying()
 
 shell_elem = MITCElement(
@@ -80,7 +88,7 @@ problem = Problem(
     geo_space,
     integrand_map=integrand_map,
     bc_map=bc_map,
-    element_objs={("shell", etype): shell_elem},
+    element_objs={("shell", ctype): shell_elem},
 )
 
 model = problem.create_model("cylinder_shell")
@@ -194,6 +202,7 @@ u_ex, v_ex, w_ex = get_exact_solution(data["geo.x"], data["geo.y"], data["geo.z"
 w_diff = w - w_ex
 print("Error = ", np.max(np.absolute(w_diff)) / np.max(w))
 
-conn = np.vstack([mesh.get_conn(s, "CPS4") for s in lateral_surfaces])
-write_vtu(mesh, conn, u, v, w, filename="cylinder_shell.vtu")
-write_vtu(mesh, conn, u_ex, v_ex, w_ex, filename="cylinder_shell_exact.vtu")
+# TODO: Fix plotting
+# conn = np.vstack([mesh.get_conn(s, "CPS4") for s in lateral_surfaces])
+# write_vtu(mesh, conn, u, v, w, filename="cylinder_shell.vtu")
+# write_vtu(mesh, conn, u_ex, v_ex, w_ex, filename="cylinder_shell_exact.vtu")

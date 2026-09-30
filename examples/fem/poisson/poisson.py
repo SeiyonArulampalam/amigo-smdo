@@ -7,14 +7,14 @@ import matplotlib.pyplot as plt
 
 
 def integrand(test, soln, data=None, geo=None):
-    v = test["u"]["value"]
-    vx = test["u"]["grad"]
+    v = test["u"].value
+    vx = test["u"].grad
 
-    u = soln["u"]["value"]
-    ux = soln["u"]["grad"]
+    u = soln["u"].value
+    ux = soln["u"].grad
 
-    x = geo["x"]["value"]
-    y = geo["y"]["value"]
+    x = geo["x"].value
+    y = geo["y"].value
 
     f = -2 * np.pi**2 * am.sin(np.pi * (x + 0.5)) * am.sin(np.pi * (y + 0.5))
 
@@ -87,7 +87,9 @@ u = x["soln.u"]
 u_exact = np.sin(np.pi * (xpts + 0.5)) * np.sin(np.pi * (ypts + 0.5))
 
 print(np.max(np.absolute(u - u_exact)) / np.max(u_exact))
-fig, ax = plt.subplots(1, 2, figsize=(8, 3))
-mesh.plot(u, ax=ax[0])
-mesh.plot(u_exact, ax=ax[1])
-plt.show()
+
+# TODO: Fix plot
+# fig, ax = plt.subplots(1, 2, figsize=(8, 3))
+# mesh.plot(u, ax=ax[0])
+# mesh.plot(u_exact, ax=ax[1])
+# plt.show()

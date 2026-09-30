@@ -7,18 +7,16 @@ import argparse
 
 
 def potential_1(soln, data=None, geo=None):
-    u = soln["u"]
-    ugrad = u["grad"]
+    ugrad = soln["u"].grad
     wf = 0.5 * dot_product(ugrad, ugrad, n=2)
     return wf
 
 
 def potential_2(soln, data=None, geo=None):
-    u = soln["u"]
-    uvalue = u["value"]
-    ugrad = u["grad"]
+    uvalue = soln["u"].value
+    ugrad = soln["u"].grad
 
-    f = data["Jz"]["value"]
+    f = data["Jz"].value
     wf = 0.5 * dot_product(ugrad, ugrad, n=2) + f * uvalue
     return wf
 
@@ -42,15 +40,15 @@ bc_map_mesh0 = {
         "target": ["LINE3"],
         "input": ["u"],
     },
-    "SymmMesh0": {
-        "type": "scaled",
-        "input": ["u"],
-        "start": False,
-        "end": False,
-        "target": [["LINE2"], ["LINE4"]],
-        "flip": [False, False],
-        "scale": [1.0, 1.0],
-    },
+    # "SymmMesh0": {
+    #     "type": "scaled",
+    #     "input": ["u"],
+    #     "start": False,
+    #     "end": False,
+    #     "target": [["LINE2"], ["LINE4"]],
+    #     "flip": [False, False],
+    #     "scale": [1.0, 1.0],
+    # },
 }
 
 bc_map_mesh1 = {
@@ -59,15 +57,15 @@ bc_map_mesh1 = {
         "target": ["LINE1"],
         "input": ["u"],
     },
-    "SymmMesh0": {
-        "type": "scaled",
-        "input": ["u"],
-        "start": False,
-        "end": False,
-        "target": [["LINE2"], ["LINE4"]],
-        "flip": [False, False],
-        "scale": [1.0, 1.0],
-    },
+    # "SymmMesh0": {
+    #     "type": "scaled",
+    #     "input": ["u"],
+    #     "start": False,
+    #     "end": False,
+    #     "target": [["LINE2"], ["LINE4"]],
+    #     "flip": [False, False],
+    #     "scale": [1.0, 1.0],
+    # },
 }
 
 bc_map = {"Mesh0": bc_map_mesh0, "Mesh1": bc_map_mesh1}
@@ -109,9 +107,9 @@ for mesh_name, mesh in meshes.items():
 # Extract the shared edge between the meshes
 mesh0 = meshes["Mesh0"]
 mesh1 = meshes["Mesh1"]
-nodes_line_1 = mesh0.get_nodes_in_domain("LINE1")
-nodes_line_3 = mesh1.get_nodes_in_domain("LINE3")
-nodes_line_3 = np.flip(nodes_line_3)
+# nodes_line_1 = mesh0.get_nodes_in_domain("LINE1")
+# nodes_line_3 = mesh1.get_nodes_in_domain("LINE3")
+# nodes_line_3 = np.flip(nodes_line_3)
 
 # Know number of points along shared edge
 npts_shared = 20
@@ -121,29 +119,29 @@ npts_shared = 20
 slide_number = 0
 x_offset = slide_number * (5.0 / npts_shared)
 
-# Add continuity BCs to the global model
-nodes_line_1_shared = nodes_line_1[slide_number:]
-nodes_line_3_shared = (
-    nodes_line_3[:] if slide_number == 0 else nodes_line_3[0:-slide_number]
-)
-model.link(
-    "Mesh0.soln.u",
-    "Mesh1.soln.u",
-    src_indices=nodes_line_1_shared,
-    tgt_indices=nodes_line_3_shared,
-)
+# # Add continuity BCs to the global model
+# nodes_line_1_shared = nodes_line_1[slide_number:]
+# nodes_line_3_shared = (
+#     nodes_line_3[:] if slide_number == 0 else nodes_line_3[0:-slide_number]
+# )
+# model.link(
+#     "Mesh0.soln.u",
+#     "Mesh1.soln.u",
+#     src_indices=nodes_line_1_shared,
+#     tgt_indices=nodes_line_3_shared,
+# )
 
-# BCs for the hanging edges
-nodes_line_1_hanging = (
-    nodes_line_1[:] if slide_number == 0 else nodes_line_1[0:slide_number]
-)
-nodes_line_3_hanging = nodes_line_3[-slide_number:]
-model.link(
-    "Mesh0.soln.u",
-    "Mesh1.soln.u",
-    src_indices=nodes_line_1_hanging,
-    tgt_indices=nodes_line_3_hanging,
-)
+# # BCs for the hanging edges
+# nodes_line_1_hanging = (
+#     nodes_line_1[:] if slide_number == 0 else nodes_line_1[0:slide_number]
+# )
+# nodes_line_3_hanging = nodes_line_3[-slide_number:]
+# model.link(
+#     "Mesh0.soln.u",
+#     "Mesh1.soln.u",
+#     src_indices=nodes_line_1_hanging,
+#     tgt_indices=nodes_line_3_hanging,
+# )
 
 # Build the model
 if args.build:
@@ -177,22 +175,23 @@ u_domain1 = x["Mesh1.soln.u"]
 max_domain = np.max(np.maximum(u_domain0, u_domain1))
 min_domain = np.min(np.minimum(u_domain0, u_domain1))
 
-# Plot solution field
-fig, ax = plt.subplots()
-mesh.plot(
-    u_domain0,
-    ax=ax,
-    x_offset=0.0,
-    y_offset=0.0,
-    max_level=max_domain,
-    min_level=min_domain,
-)
-mesh.plot(
-    u_domain1,
-    ax=ax,
-    x_offset=x_offset,
-    y_offset=-5.0,
-    max_level=max_domain,
-    min_level=min_domain,
-)
-plt.show()
+# TODO: Fix plot
+# # Plot solution field
+# fig, ax = plt.subplots()
+# mesh.plot(
+#     u_domain0,
+#     ax=ax,
+#     x_offset=0.0,
+#     y_offset=0.0,
+#     max_level=max_domain,
+#     min_level=min_domain,
+# )
+# mesh.plot(
+#     u_domain1,
+#     ax=ax,
+#     x_offset=x_offset,
+#     y_offset=-5.0,
+#     max_level=max_domain,
+#     min_level=min_domain,
+# )
+# plt.show()

@@ -261,12 +261,25 @@ class DofLayout:
 
     @classmethod
     def make_layout(cls, space: FunctionSpace, cell_type: CellType):
-        if space.func_space == Space.H1:
+        if space.func_space == Space.CONST:
+            return cls.make_const(space, cell_type)
+        elif space.func_space == Space.H1:
             return cls.make_h1(space, cell_type)
         elif space.func_space == Space.HDIV:
             return cls.make_hdiv(space, cell_type)
         else:
             raise NotImplementedError
+
+    @classmethod
+    def make_const(cls, space: FunctionSpace, cell_type: CellType):
+        ref_cell = REFERENCE_CELLS[cell_type]
+
+        return cls(
+            ref_cell=ref_cell,
+            pts=((0.0, 0.0, 0.0)),
+            space=space,
+            cell_dofs=((0,)),
+        )
 
     @classmethod
     def make_h1(cls, space: FunctionSpace, cell_type: CellType):
