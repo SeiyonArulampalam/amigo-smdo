@@ -130,7 +130,7 @@ class FiniteElementOutput(am.Component):
 
 @dataclass
 class MITCStrainComponent:
-    value: Expr
+    value: Expr | None = None
 
 
 class MITCTyingStrain(ABC):
@@ -194,7 +194,7 @@ class MITCElement(FiniteElement):
 
         # Add to the physics
         soln_phys.update(
-            self.mitc.interp_and_transform(quad_point, Jinv, tensorial_strains)
+            self.mitc.interp_and_transform(quad_point, detJ, J, Jinv, tensorial_strains)
         )
 
         # Add the contributions directly to the Lagrangian
@@ -255,7 +255,7 @@ class MITCElementOutput(am.Component):
 
         # Add to the physics
         soln_phys.update(
-            self.mitc.interp_and_transform(quad_point, Jinv, tensorial_strains)
+            self.mitc.interp_and_transform(quad_point, detJ, J, Jinv, tensorial_strains)
         )
 
         # Add the contributions directly to the Lagrangian

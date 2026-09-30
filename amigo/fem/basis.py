@@ -37,19 +37,19 @@ def mat_vec_transpose(A, x, m=1, n=1):
 
 @dataclass
 class ConstValue:
-    value: Expr
+    value: Expr | None = None
 
 
 @dataclass
 class H1Value:
-    value: Expr
-    grad: list[Expr]
+    value: Expr | None = None
+    grad: list[Expr] | None = None
 
 
 @dataclass
 class HdivValue:
-    vec: list[Expr]
-    div: Expr
+    vec: list[Expr] | None = None
+    div: Expr | None = None
 
 
 class Basis:
@@ -441,7 +441,7 @@ def make_basis(
 
         obj = None
         if space.func_space == Space.CONST:
-            obj = ConstantBasis(names)
+            obj = ConstantBasis(names, space, kind=kind)
         elif space.func_space == Space.H1:
             if cell_type == CellType.SEGMENT:
                 obj = LagrangeBasis1D(names, space, kind=kind)
