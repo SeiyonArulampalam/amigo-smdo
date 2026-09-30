@@ -329,16 +329,15 @@ class Problem:
         return result
         # return field[dof_to_node >= 0]
 
-    def visualize(self, x, field="soln.u"):
+    def visualize(self, x, field, domain):
         """
         Visualize an H1 triangle solution field of degree 1 or 2.
         """
         grid = self._build_visualization_grid(x, field=field, domain=domain)
-        grid.plot(scalars=field, show_edges=True, cmap="coolwarm")
+        grid.plot(scalars=field, show_edges=False, cmap="coolwarm")
         return grid
 
-    def save_vtu(self, x, domain="SURFACE1"):
-        domain = "SURFACE1"
+    def save_vtu(self, x, field, domain):
         grid = self._build_visualization_grid(x, field=field, domain=domain)
         grid.save("output_field.vtu")
         return

@@ -276,7 +276,7 @@ class DofLayout:
 
         return cls(
             ref_cell=ref_cell,
-            pts=((0.0, 0.0, 0.0)),
+            pts=((0.0, 0.0, 0.0),),
             space=space,
             cell_dofs=((0,)),
         )

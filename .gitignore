@@ -12,6 +12,7 @@ include/amigo_include_paths.h
 /_build_debug
 /amigo/amigo.cpython*
 /**/_amigo_build
+*.vtu
 
 # Compiled Python
 **/__pycache__

@@ -90,7 +90,7 @@ def potential_traction(soln, data=None, geo=None):
 
 
 # Two displacement DOFs per node
-H1 = FunctionSpace(func_space=Space.H1, degree=2)
+H1 = FunctionSpace(func_space=Space.H1, degree=1)
 soln_space = SolutionSpace({"u": H1, "v": H1})
 geo_space = SolutionSpace({"x": "H1", "y": "H1"})
 data_space = SolutionSpace({})  # empty for now
@@ -164,10 +164,13 @@ v = x["soln.v"]
 # problem.plot(u, ax=ax)
 
 # Extract displacement fields
-u = problem.field_to_nodes(u)
-v = problem.field_to_nodes(v)
+# u = problem.field_to_nodes(u)
+# v = problem.field_to_nodes(v)
 
-fig, ax = plt.subplots(nrows=2)
-plot(mesh, u, ax=ax[0])
-plot(mesh, v, ax=ax[1])
-plt.show()
+# fig, ax = plt.subplots(nrows=2)
+# plot(mesh, u, ax=ax[0])
+# plot(mesh, v, ax=ax[1])
+# plt.show()
+
+problem.visualize(x, "soln.u", "SURFACE1")
+# problem.visualize(x)
