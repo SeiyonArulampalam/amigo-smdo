@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from enum import Enum, auto
+
 """
 dim = 0 -> entity = point   (0-D)
 dim = 1 -> entity = edge    (1-D)
 dim = 2 -> entity = face    (2-D)
 dim = 3 -> entity = volume  (3-D)
 """
+
 
 class CellType(Enum):
     POINT = auto()
