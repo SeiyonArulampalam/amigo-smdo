@@ -37,6 +37,7 @@ REFERENCE_CELLS: dict[CellType, ReferenceCell] = {
             (-1.0,),  # 0
             (1.0,),  # 1
         ),
+        edges=((0, 1),),
     ),
     CellType.TRIANGLE: ReferenceCell(
         cell_type=CellType.TRIANGLE,
@@ -51,6 +52,8 @@ REFERENCE_CELLS: dict[CellType, ReferenceCell] = {
             (1, 2),
             (2, 0),
         ),
+        faces=((0, 1, 2),),
+        face_types=(CellType.TRIANGLE,),
     ),
     CellType.QUADRILATERAL: ReferenceCell(
         cell_type=CellType.QUADRILATERAL,
@@ -67,6 +70,8 @@ REFERENCE_CELLS: dict[CellType, ReferenceCell] = {
             (2, 3),
             (3, 0),
         ),
+        faces=((0, 1, 2, 3),),
+        face_types=(CellType.QUADRILATERAL,),
     ),
     CellType.TETRAHEDRON: ReferenceCell(
         cell_type=CellType.TETRAHEDRON,
@@ -248,14 +253,14 @@ class DofLayout:
     vertex_dofs: tuple[tuple[int, ...], ...] = ()
     edge_dofs: tuple[tuple[int, ...], ...] = ()
     face_dofs: tuple[tuple[int, ...], ...] = ()
-    interior_dofs: tuple[int, ...] = ()
+    cell_dofs: tuple[int, ...] = ()
 
     @property
     def ndof(self):
         return len(self.pts)
 
     @classmethod
-    def make(cls, space: FunctionSpace, cell_type: CellType):
+    def make_layout(cls, space: FunctionSpace, cell_type: CellType):
         if space.func_space == Space.H1:
             return cls.make_h1(space, cell_type)
         elif space.func_space == Space.HDIV:
@@ -303,7 +308,7 @@ class DofLayout:
             Interior DOFs associated with each face, ordered according
             to ref_cell.faces.
 
-        interior_dofs : tuple[int, ...]
+        cell_dofs : tuple[int, ...]
             DOFs in the interior of the cell.
         """
 
@@ -321,7 +326,7 @@ class DofLayout:
         vertex_dofs = []
         edge_dofs = []
         face_dofs = []
-        interior_dofs = []
+        cell_dofs = []
 
         # ------------------------------------------------------------
         # Helpers
@@ -401,112 +406,47 @@ class DofLayout:
                 ),
             )
 
-        # ------------------------------------------------------------
-        # Vertices
-        # ------------------------------------------------------------
-
+        # Vertices: all dimensions
         for v in range(len(verts)):
             vertex_dofs.append(add_point(verts[v]))
 
-        # ------------------------------------------------------------
-        # Proper edges
-        #
-        # For cells of dimension >= 2, ref_cell.edges are proper
-        # subentities. For a SEGMENT, the cell itself is the 1D entity,
-        # so its p-1 non-vertex DOFs are handled as cell interiors below.
-        # ------------------------------------------------------------
-
-        if ref_cell.dimension >= 2:
-            for v0, v1 in ref_cell.edges:
-                dofs = []
-
-                for i in range(1, p):
-                    dofs.append(add_point(edge_point(v0, v1, i)))
-
-                edge_dofs.append(tuple(dofs))
-
-        # ------------------------------------------------------------
-        # Proper faces
-        #
-        # Only 3D cells have proper 2D face subentities.
-        # ------------------------------------------------------------
-
-        if ref_cell.dimension == 3:
-            if len(ref_cell.faces) != len(ref_cell.face_types):
-                raise ValueError(
-                    "ref_cell.faces and ref_cell.face_types must "
-                    "have the same length"
-                )
-
-            for face, face_type in zip(ref_cell.faces, ref_cell.face_types):
-                dofs = []
-
-                if face_type == CellType.TRIANGLE:
-
-                    v0, v1, v2 = face
-
-                    # Strictly positive barycentric coordinates.
-                    for j in range(1, p):
-                        for i in range(1, p - j):
-                            dofs.append(add_point(triangle_point(v0, v1, v2, i, j)))
-
-                elif face_type == CellType.QUADRILATERAL:
-
-                    v0, v1, v2, v3 = face
-
-                    for j in range(1, p):
-                        for i in range(1, p):
-                            dofs.append(add_point(quad_point(v0, v1, v2, v3, i, j)))
-
-                else:
-                    raise ValueError(f"Unsupported H1 face type: {face_type}")
-
-                face_dofs.append(tuple(dofs))
-
-        # ------------------------------------------------------------
-        # Cell interior
-        # ------------------------------------------------------------
-
-        cell_type = ref_cell.cell_type
-
-        if cell_type == CellType.POINT:
-            # The single vertex already represents the point element.
-            pass
-
-        elif cell_type == CellType.SEGMENT:
-
-            v0, v1 = 0, 1
+        # Edges: every topological edge, including a SEGMENT itself
+        for v0, v1 in ref_cell.edges:
+            dofs = []
 
             for i in range(1, p):
-                interior_dofs.append(add_point(edge_point(v0, v1, i)))
+                dofs.append(add_point(edge_point(v0, v1, i)))
 
-        elif cell_type == CellType.TRIANGLE:
+            edge_dofs.append(tuple(dofs))
 
-            v0, v1, v2 = 0, 1, 2
+        # Faces: every topological face, including a TRIANGLE/QUAD itself
+        for face, face_type in zip(ref_cell.faces, ref_cell.face_types):
+            dofs = []
 
-            for j in range(1, p):
-                for i in range(1, p - j):
-                    interior_dofs.append(add_point(triangle_point(v0, v1, v2, i, j)))
+            if face_type == CellType.TRIANGLE:
+                v0, v1, v2 = face
 
-        elif cell_type == CellType.QUADRILATERAL:
+                for j in range(1, p):
+                    for i in range(1, p - j):
+                        dofs.append(add_point(triangle_point(v0, v1, v2, i, j)))
 
-            v0, v1, v2, v3 = 0, 1, 2, 3
+            elif face_type == CellType.QUADRILATERAL:
+                v0, v1, v2, v3 = face
 
-            for j in range(1, p):
-                for i in range(1, p):
-                    interior_dofs.append(add_point(quad_point(v0, v1, v2, v3, i, j)))
+                for j in range(1, p):
+                    for i in range(1, p):
+                        dofs.append(add_point(quad_point(v0, v1, v2, v3, i, j)))
 
-        elif cell_type == CellType.TETRAHEDRON:
+            else:
+                raise ValueError(f"Unsupported H1 face type: {face_type}")
 
-            # Standard tetrahedral vertex ordering:
-            #
-            #     0, 1, 2, 3
-            #
-            # Use strictly positive barycentric coordinates
-            #
-            #     lambda0 + lambda1 + lambda2 + lambda3 = 1
-            #
+            if len(dofs) > 0:
+                face_dofs.append(tuple(dofs))
 
+        # Cell interior
+        cell_type = ref_cell.cell_type
+
+        if cell_type == CellType.TETRAHEDRON:
             for k in range(1, p):
                 for j in range(1, p - k):
                     for i in range(1, p - j - k):
@@ -516,7 +456,7 @@ class DofLayout:
                         l3 = k / p
                         l0 = 1.0 - l1 - l2 - l3
 
-                        interior_dofs.append(
+                        cell_dofs.append(
                             add_point(
                                 weighted_point(
                                     (0, 1, 2, 3),
@@ -558,7 +498,7 @@ class DofLayout:
                             (1 - x) * y * z,
                         )
 
-                        interior_dofs.append(
+                        cell_dofs.append(
                             add_point(
                                 weighted_point(
                                     tuple(range(8)),
@@ -600,7 +540,7 @@ class DofLayout:
                             z * l2,
                         )
 
-                        interior_dofs.append(
+                        cell_dofs.append(
                             add_point(
                                 weighted_point(
                                     tuple(range(6)),
@@ -653,7 +593,7 @@ class DofLayout:
                             t,
                         )
 
-                        interior_dofs.append(
+                        cell_dofs.append(
                             add_point(
                                 weighted_point(
                                     (v0, v1, v2, v3, va),
@@ -661,9 +601,6 @@ class DofLayout:
                                 )
                             )
                         )
-
-        else:
-            raise ValueError(f"Unsupported cell type: {cell_type}")
 
         return cls(
             ref_cell=ref_cell,
@@ -673,7 +610,7 @@ class DofLayout:
             vertex_dofs=tuple(vertex_dofs),
             edge_dofs=tuple(edge_dofs),
             face_dofs=tuple(face_dofs),
-            interior_dofs=tuple(interior_dofs),
+            cell_dofs=tuple(cell_dofs),
         )
 
     @classmethod
@@ -745,7 +682,7 @@ class DofLayout:
             Interior DOFs associated with each face, ordered according
             to ref_cell.faces (non-empty only for 3D cells).
 
-        interior_dofs : tuple[int, ...]
+        cell_dofs : tuple[int, ...]
             DOFs in the interior of the cell.
         """
 
@@ -774,7 +711,7 @@ class DofLayout:
         vertex_dofs = []
         edge_dofs = []
         face_dofs = []
-        interior_dofs = []
+        cell_dofs = []
 
         def add_dof(x, d):
             dof = len(pts)
@@ -942,7 +879,7 @@ class DofLayout:
 
             # Together with the two end points this gives k + 1 nodes for P_k
             for i in range(1, k):
-                interior_dofs.append(add_dof(edge_point(0, 1, i / k), unit(0)))
+                cell_dofs.append(add_dof(edge_point(0, 1, i / k), unit(0)))
 
         elif cell_type == CellType.TRIANGLE:
 
@@ -954,7 +891,7 @@ class DofLayout:
                 for j in range(1, n - 1):
                     for i in range(1, n - j):
                         pt = triangle_point(0, 1, 2, i / n, j / n)
-                        interior_dofs.append(add_dof(pt, unit(c)))
+                        cell_dofs.append(add_dof(pt, unit(c)))
 
         elif cell_type == CellType.QUADRILATERAL:
 
@@ -963,12 +900,12 @@ class DofLayout:
             for j in range(1, k + 1):
                 for i in range(1, k):
                     pt = quad_point(0, 1, 2, 3, i / k, j / (k + 1))
-                    interior_dofs.append(add_dof(pt, unit(0)))
+                    cell_dofs.append(add_dof(pt, unit(0)))
 
             for j in range(1, k):
                 for i in range(1, k + 1):
                     pt = quad_point(0, 1, 2, 3, i / (k + 1), j / k)
-                    interior_dofs.append(add_dof(pt, unit(1)))
+                    cell_dofs.append(add_dof(pt, unit(1)))
 
         elif cell_type == CellType.TETRAHEDRON:
 
@@ -986,7 +923,7 @@ class DofLayout:
                             l0 = 1.0 - l1 - l2 - l3
 
                             pt = weighted_point((0, 1, 2, 3), (l0, l1, l2, l3))
-                            interior_dofs.append(add_dof(pt, unit(c)))
+                            cell_dofs.append(add_dof(pt, unit(c)))
 
         elif cell_type == CellType.HEXAHEDRON:
 
@@ -999,7 +936,7 @@ class DofLayout:
                     for j in range(1, counts[1]):
                         for i in range(1, counts[0]):
                             pt = hex_point(i / counts[0], j / counts[1], l / counts[2])
-                            interior_dofs.append(add_dof(pt, unit(c)))
+                            cell_dofs.append(add_dof(pt, unit(c)))
 
         elif cell_type in (CellType.PRISM, CellType.PYRAMID):
             # Lowest order: facet DOFs only
@@ -1016,5 +953,5 @@ class DofLayout:
             vertex_dofs=tuple(vertex_dofs),
             edge_dofs=tuple(edge_dofs),
             face_dofs=tuple(face_dofs),
-            interior_dofs=tuple(interior_dofs),
+            cell_dofs=tuple(cell_dofs),
         )

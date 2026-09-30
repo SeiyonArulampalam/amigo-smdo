@@ -1,5 +1,7 @@
 import amigo as am
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from ..expressions import Expr
 
 
 class FiniteElement(am.Component):
@@ -124,6 +126,11 @@ class FiniteElementOutput(am.Component):
             else:
                 self.outputs[name] = 0.0
         return
+
+
+@dataclass
+class MITCStrainComponent:
+    value: Expr
 
 
 class MITCTyingStrain(ABC):

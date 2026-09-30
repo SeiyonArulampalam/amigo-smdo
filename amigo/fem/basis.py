@@ -111,7 +111,9 @@ class ConstantBasis(Basis):
 
 class LagrangeBasis1D(Basis):
     def __init__(self, names: list[str], space: FunctionSpace, kind="input"):
-        layout = DofLayout.make_h1(space, CellType.SEGMENT)
+        if not space.func_space is Space.H1:
+            raise ValueError("Space must be H1")
+        layout = DofLayout.make_layout(space, CellType.SEGMENT)
         super().__init__(names, layout, kind=kind)
 
         self.vand = Vandermonde1D(space.degree, layout.pts)
@@ -228,7 +230,9 @@ class LagrangeBasis2D(Basis):
 
 class TriangleLagrangeBasis(LagrangeBasis2D):
     def __init__(self, names: list[str], space: FunctionSpace, kind: str = "input"):
-        layout = DofLayout.make_h1(space, CellType.TRIANGLE)
+        if not space.func_space is Space.H1:
+            raise ValueError("Space must be H1")
+        layout = DofLayout.make_layout(space, CellType.TRIANGLE)
         exps = self._get_monomial_exponents(space.degree)
 
         super().__init__(names, layout, exps, kind=kind)
@@ -244,7 +248,9 @@ class TriangleLagrangeBasis(LagrangeBasis2D):
 
 class QuadLagrangeBasis(LagrangeBasis2D):
     def __init__(self, names: list[str], space: FunctionSpace, kind: str = "input"):
-        layout = DofLayout.make_h1(space, CellType.QUADRILATERAL)
+        if not space.func_space is Space.H1:
+            raise ValueError("Space must be H1")
+        layout = DofLayout.make_layout(space, CellType.QUADRILATERAL)
         exps = self._get_monomial_exponents(space.degree)
         super().__init__(names, layout, exps, kind=kind)
 
@@ -349,6 +355,8 @@ class RTBasis2D(Basis):
 
 class QuadRTBasis(RTBasis2D):
     def __init__(self, names: list[str], space: FunctionSpace, kind="input"):
+        if not space.func_space is Space.HDIV:
+            raise ValueError("Space must be H(div)")
         if space.degree == 1:
             uexps = [(0, 0), (-1, -1), (1, 0), (0, 0)]
             vexps = [(-1, -1), (0, 0), (-1, -1), (0, 1)]
@@ -357,14 +365,16 @@ class QuadRTBasis(RTBasis2D):
             vexps = []
         else:
             raise ValueError(f"Degree {space.degree} must be <= 2")
-        layout = DofLayout.make_hdiv(space, CellType.QUADRILATERAL)
 
+        layout = DofLayout.make_layout(space, CellType.QUADRILATERAL)
         super().__init__(names, layout, uexps, vexps, kind=kind)
         return
 
 
 class TriangleRTBasis(RTBasis2D):
     def __init__(self, names: list[str], space: FunctionSpace, kind="input"):
+        if not space.func_space is Space.HDIV:
+            raise ValueError("Space must be H(div)")
         if space.degree == 1:
             uexps = [(0, 0), (-1, -1), (1, 0)]
             vexps = [(-1, -1), (0, 0), (0, 1)]
@@ -392,8 +402,7 @@ class TriangleRTBasis(RTBasis2D):
         else:
             raise ValueError(f"Degree {space.degree} must be <= 2")
 
-        layout = DofLayout.make_hdiv(space, CellType.TRIANGLE)
-
+        layout = DofLayout.make_layout(space, CellType.TRIANGLE)
         super().__init__(names, layout, uexps, vexps, kind=kind)
         return
 

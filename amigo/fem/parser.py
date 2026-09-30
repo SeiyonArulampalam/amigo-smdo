@@ -7,6 +7,8 @@ class InpParser:
     def __init__(self):
         self.X = {}
         self.elem_conn = {}
+        self.edge_conn = {}
+        self.edge_orientation = {}
         self.node_sets = {}
         self.surfaces = []
         self.cell_type_map = {CellType.TRIANGLE: "CPS3", CellType.SEGMENT: "T3D2"}
@@ -26,7 +28,11 @@ class InpParser:
 
     def parse_inp(self, filename):
         # Mapping from element name to cell type
-        elem_mapping = {"T3D2": CellType.SEGMENT, "CPS3": CellType.TRIANGLE}
+        elem_mapping = {
+            "T3D2": CellType.SEGMENT,
+            "CPS3": CellType.TRIANGLE,
+            "CPS4": CellType.QUADRILATERAL,
+        }
 
         self.__init__()
         section = elset = elem_type = nset_name = None
@@ -67,6 +73,44 @@ class InpParser:
             elif section == "NSET":
                 self.node_sets[nset_name].extend(int(p) - 1 for p in parts)
 
+        # Add all the edges to the domain
+        self._build_edge_conn()
+
+        return
+
+    def _build_edge_conn(self):
+        edges = {}
+
+        # Loop over the connectivity
+        for elset in self.elem_conn:
+            self.edge_conn[elset] = {}
+            self.edge_orientation[elset] = {}
+
+            for cell_type in self.elem_conn[elset]:
+                conn = self.get_conn(elset, cell_type)
+
+                # Get the local edges
+                local_edges = REFERENCE_CELLS[cell_type].edges
+
+                edge_conn = np.zeros((len(conn), len(local_edges)), dtype=int)
+                edge_orientation = np.zeros_like(edge_conn)
+
+                for e, nodes in enumerate(conn):
+                    for i, local in enumerate(local_edges):
+                        n0, n1 = int(nodes[local[0]]), int(nodes[local[1]])
+                        key = (min(n0, n1), max(n0, n1))
+                        if key not in edges:
+                            edges[key] = len(edges)
+
+                        edge_conn[e, i] = edges[key]
+                        edge_orientation[e, i] = 1 if n0 < n1 else -1
+
+                # Add the edges
+                self.edge_conn[elset][cell_type] = edge_conn
+                self.edge_orientation[elset][cell_type] = edge_orientation
+
+        return
+
     def get_nodes(self):
         return np.array([self.X[k] for k in sorted(self.X.keys())])
 
@@ -80,37 +124,11 @@ class InpParser:
         conn = self.elem_conn[elset.upper()][cell_type]
         return np.array([conn[k] for k in sorted(conn.keys())], dtype=int)
 
-    def get_nodes_in_domain(self, elset):
-        elset = elset.upper()
-        if elset in self.node_sets:
-            return np.array(list(dict.fromkeys(self.node_sets[elset])))
-
-        conn = []
-        for elem_type in self.elem_conn[elset]:
-            # cell_type = self.elem_type_map[elem_type]
-            conn.extend(self.get_conn(elset, elem_type).flatten())
-
-        # Single unique list of nodes preserving GMSH ordering
-        return np.array(list(dict.fromkeys(conn)))
-
     def get_edge_conn(self, elset, cell_type: CellType):
-        conn = self.get_conn(elset, cell_type)
-        local_edges = REFERENCE_CELLS[cell_type].edges
-
-        seen = {}
-        edge_conn = np.zeros((len(conn), len(local_edges)), dtype=int)
-        elem_signs = np.zeros_like(edge_conn)
-
-        for e, nodes in enumerate(conn):
-            for i, local in enumerate(local_edges):
-                n0, n1 = int(nodes[local[0]]), int(nodes[local[1]])
-                key = (min(n0, n1), max(n0, n1))
-                if key not in seen:
-                    seen[key] = len(seen)
-                edge_conn[e, i] = seen[key]
-                elem_signs[e, i] = 1 if n0 < n1 else -1
-
-        return edge_conn, elem_signs
+        return (
+            self.edge_conn[elset.upper()][cell_type],
+            self.edge_orientation[elset.upper()][cell_type],
+        )
 
 
 class BdfParser:
@@ -195,7 +213,6 @@ class BdfParser:
         self.info = info
 
     def get_nodes(self):
-        print(self.Xpts.shape)
         return self.Xpts
 
     def get_domains(self):
@@ -210,17 +227,3 @@ class BdfParser:
     def get_conn(self, elset, elem_type):
         conn = self.elem_conn[elset.upper()][elem_type.upper()]
         return np.array([conn[k] for k in sorted(conn.keys())], dtype=int)
-
-    def get_nodes_in_domain(self, elset):
-        elset = elset.upper()
-        if elset in self.node_sets:
-            return np.array(list(dict.fromkeys(self.node_sets[elset])))
-
-        conn = []
-        for elem_type in self.elem_conn[elset]:
-            conn.extend(self.get_conn(elset, elem_type).flatten())
-
-        # Turn into a single unique list of nodes preserving GMSH ordering
-        node_list = np.array(list(dict.fromkeys(conn)))
-
-        return node_list

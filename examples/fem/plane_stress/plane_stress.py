@@ -1,9 +1,56 @@
-from amigo.fem import Mesh, Problem, SolutionSpace
+from amigo.fem import Mesh, Problem, CellType, Space, FunctionSpace, SolutionSpace
 import amigo as am
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
+
+import matplotlib.tri as tri
+
+
+def plot(
+    mesh,
+    usol,
+    ax=None,
+    nlevels=30,
+    cmap="coolwarm",
+    title=None,
+    x_offset=0.0,
+    y_offset=0.0,
+    min_level=None,
+    max_level=None,
+):
+    if ax is None:
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+
+    domains = mesh.get_domains()
+    x = mesh.X[:, 0] + x_offset
+    y = mesh.X[:, 1] + y_offset
+
+    # Get the connectivity
+    conn = mesh.get_vertex_conn("SURFACE1", CellType.TRIANGLE)
+    triangles = tri.Triangulation(x, y, conn)
+
+    uvals = usol[: len(x)]
+
+    if min_level == None or max_level == None:
+        min_level = np.min(uvals)
+        max_level = np.max(uvals)
+
+    levels = np.linspace(min_level, max_level, nlevels)
+
+    # Set the contour plot
+    ax.tricontourf(triangles, uvals, levels=levels, cmap=cmap)
+    ax.tricontour(
+        triangles, uvals, levels=levels, colors="k", linewidths=0.3, alpha=0.5
+    )
+
+    if title is not None:
+        ax.set_title(title)
+
+    ax.set_aspect("equal")
+
+    return ax
 
 
 def potential_plane_stress(soln, data=None, geo=None):
@@ -43,7 +90,8 @@ def potential_traction(soln, data=None, geo=None):
 
 
 # Two displacement DOFs per node
-soln_space = SolutionSpace({"u": "H1", "v": "H1"})
+H1 = FunctionSpace(func_space=Space.H1, degree=2)
+soln_space = SolutionSpace({"u": H1, "v": H1})
 geo_space = SolutionSpace({"x": "H1", "y": "H1"})
 data_space = SolutionSpace({})  # empty for now
 
@@ -65,7 +113,6 @@ bc_map = {
         "input": ["u", "v"],
     },
 }
-
 
 mesh = Mesh("plate.inp")
 
@@ -110,15 +157,17 @@ flag = chol.factor()
 x[:] = g[:]
 chol.solve(x.get_vector())
 
-print("Plotting...")
-
-# Extract displacement fields
 u = x["soln.u"]
 v = x["soln.v"]
 
-# fig, ax = plt.subplots(nrows=2)
-# mesh.plot(u, ax=ax[0])
-# mesh.plot(v, ax=ax[1])
+# Plot the solution
+# problem.plot(u, ax=ax)
 
-print(np.max(g[:]), np.min(g[:]))
+# Extract displacement fields
+u = problem.field_to_nodes(u)
+v = problem.field_to_nodes(v)
+
+fig, ax = plt.subplots(nrows=2)
+plot(mesh, u, ax=ax[0])
+plot(mesh, v, ax=ax[1])
 plt.show()

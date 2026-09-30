@@ -20,38 +20,53 @@ class TriangleQuadrature(Quadrature):
             self.eta = np.array([1 / 3])
             self.weights = np.array([1.0 / 2.0])
 
-        elif order == 2:
-            # 3-point (exact for degree 2)
-            self.xi = np.array([1 / 6, 2 / 3, 1 / 6])
-            self.eta = np.array([1 / 6, 1 / 6, 2 / 3])
-            self.weights = np.array([1 / 6, 1 / 6, 1 / 6])
-
-        elif order == 3:
-            # 4-point (exact for degree 3)
-            self.xi = np.array([1 / 3, 3 / 5, 1 / 5, 1 / 5])
-            self.eta = np.array([1 / 3, 1 / 5, 3 / 5, 1 / 5])
-            self.weights = np.array([-9 / 32, 25 / 96, 25 / 96, 25 / 96])
-
-        elif order == 4:
-            a = 0.445948490915965
-            b = 0.108103018168070
-            c = 0.091576213509771
-            d = 0.816847572980459
-
-            w1 = 0.223381589678011
-            w2 = 0.109951743655322
-
-            self.xi = np.array([a, a, b, c, c, d])
-            self.eta = np.array([a, b, a, c, d, c])
-            self.weights = np.array([w1, w1, w1, w2, w2, w2])
-        else:
-            raise NotImplementedError
+        self.xi, self.eta, self.weights = self._duffy_quadrature((order - 1) ** 2)
 
         self.args = []
         for n in range(len(self.weights)):
             self.args.append({"n": n})
 
         return
+
+    def _duffy_quadrature(self, degree):
+        """
+        Quadrature on the reference triangle
+
+            (0,0), (1,0), (0,1)
+
+        exact for complete polynomials of total degree <= degree.
+
+        Returns
+        -------
+        pts : (nq, 2) ndarray
+            Quadrature points [x, y].
+        weights : (nq,) ndarray
+            Quadrature weights.
+        """
+
+        # Under the Duffy transformation, a degree-p polynomial
+        # times the Jacobian can have degree p+1 in r.
+        n = (degree + 2) // 2
+
+        # Gauss-Legendre rule on [-1, 1]
+        pts, wi = np.polynomial.legendre.leggauss(n)
+
+        # Transform to [0, 1]
+        q = 0.5 * (pts + 1.0)
+        w = 0.5 * wi
+
+        weights = []
+        xi = []
+        eta = []
+
+        for i, r in enumerate(q):
+            for j, s in enumerate(q):
+                xi.append(r)
+                eta.append((1.0 - r) * s)
+
+                weights.append(w[i] * w[j] * (1.0 - r))
+
+        return xi, eta, weights
 
     def get_args(self):
         return self.args

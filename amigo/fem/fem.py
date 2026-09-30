@@ -1,156 +1,10 @@
 import amigo as am
 import numpy as np
-from . import basis
 from .element import FiniteElement, FiniteElementOutput
 from .fem_space import SolutionSpace
 from .basis import make_basis
-from .mesh import Mesh
-from .dof_handler import DegreesOfFreedom, DofSource
+from .dof_handler import DofSource, DegreesOfFreedom, BoundaryConditions
 from .quadrature import make_quadrature, ReducedQuadQuadrature
-from .plot_utils import plot
-from pathlib import Path
-
-
-class ScaledBC(am.Component):
-    def __init__(self, name, input_name=[], scale=[1.0, 1.0]):
-        super().__init__(name)
-
-        if len(scale) != 2:
-            raise ValueError("scale must be of length 2")
-
-        self.input_name = input_name
-
-        self.add_constant(f"scale_left", value=scale[0])
-        self.add_constant(f"scale_right", value=scale[1])
-
-        for name in self.input_name:
-            self.add_input(f"{name}_left", value=1.0)
-            self.add_input(f"{name}_right", value=1.0)
-            self.add_constraint(f"res_{name}")
-
-        return
-
-    def compute(self):
-        scale_left = self.constants["scale_left"]
-        scale_right = self.constants["scale_right"]
-
-        for name in self.input_name:
-            self.constraints[f"res_{name}"] = (
-                scale_left * self.inputs[f"{name}_left"]
-                + scale_right * self.inputs[f"{name}_right"]
-            )
-        return
-
-
-class BoundaryConditions:
-    def __init__(self, bc_name, mesh, bc={}, integrand_formulation="potential"):
-        if not (
-            bc["type"] == "dirichlet"
-            or bc["type"] == "continuity"
-            or bc["type"] == "scaled"
-        ):
-            typ = bc["type"]
-            raise ValueError(f"Unrecognized boundary condition type {typ}")
-        self.bc_name = bc_name
-        self.mesh = mesh
-        self.bc = bc
-        self.integrand_formulation = integrand_formulation
-        return
-
-    def _get_bc_nodes(self, targets, start=True, end=True):
-        all_nodes = []
-        for target in targets:
-            nodes = self.mesh.get_nodes_in_domain(target)
-            all_nodes.extend(nodes)
-
-        unique = list(dict.fromkeys(all_nodes))
-
-        if not start:
-            unique = unique[1:]
-        if not end:
-            unique = unique[:-1]
-
-        return unique
-
-    def _reorder_nodes(self, nodes_left, nodes_right):
-        nodes_left = np.array(nodes_left)
-        nodes_right = np.array(nodes_right)
-
-        y_left = self.mesh.X[nodes_left, 1]
-        y_right = self.mesh.X[nodes_right, 1]
-
-        idx_left = np.argsort(y_left)
-        idx_right = np.argsort(y_right)
-
-        return nodes_left[idx_left], nodes_right[idx_right]
-
-    def _get_matched_nodes(self, targets, start=True, end=True):
-        left_target_lines = targets[0]
-        right_target_lines = targets[1]
-        nodes_left = self._get_bc_nodes(left_target_lines, start, end)
-        nodes_right = self._get_bc_nodes(right_target_lines, start, end)
-
-        if len(nodes_left) != len(nodes_right):
-            raise Exception(f"nnodes left != nnodes right")
-
-        # Reorder the nodes to match
-        return self._reorder_nodes(nodes_left, nodes_right)
-
-    def add_bcs(self, model):
-        """Add the boundary conditions to the model"""
-
-        if self.bc["type"] == "dirichlet":
-            nodes = self._get_bc_nodes(self.bc["target"])
-
-            input_names = self.bc["input"]
-            for name in input_names:
-                model.add_fixed(f"soln.{name}", nodes)
-
-                if self.integrand_formulation == "weak":
-                    model.add_fixed(f"multiplier.res_{name}", nodes)
-
-        else:
-            targets = self.bc["target"]
-            start = self.bc.get("start", True)
-            end = self.bc.get("end", True)
-
-            nodes_left, nodes_right = self._get_matched_nodes(
-                targets, start=start, end=end
-            )
-
-            input_names = self.bc["input"]
-            if self.bc["type"] == "continuity":
-                for name in input_names:
-                    model.link(
-                        f"soln.{name}",
-                        f"soln.{name}",
-                        src_indices=nodes_left,
-                        tgt_indices=nodes_right,
-                    )
-
-            elif self.bc["type"] == "scaled":
-                scale = self.bc["scale"]
-                class_name = f"ScaledBC_{self.bc_name}"
-                bc_src = ScaledBC(class_name, input_names, scale=scale)
-
-                if len(nodes_left) > 0:
-                    model.add_component(
-                        f"{self.bc_name}",
-                        len(nodes_left),
-                        bc_src,
-                    )
-
-                    for name in input_names:
-                        model.link(
-                            f"soln.{name}",
-                            f"{self.bc_name}.{name}_left",
-                            src_indices=nodes_left,
-                        )
-                        model.link(
-                            f"soln.{name}",
-                            f"{self.bc_name}.{name}_right",
-                            src_indices=nodes_right,
-                        )
 
 
 class Problem:
@@ -224,10 +78,13 @@ class Problem:
         # Build the boundary conditions
         self.boundary_conditions = []
 
+        # Get the handler for the boundary conditions
+        dof_handler = self.soln_dof.get_dof_handler()
+
         for name in bc_map:
             bc = bc_map[name]
             self.boundary_conditions.append(
-                BoundaryConditions(name, self.mesh, bc, self.integrand_formulation)
+                BoundaryConditions(name, dof_handler, bc, self.integrand_formulation)
             )
 
         return
@@ -416,9 +273,56 @@ class Problem:
 
         # Set the node locations directly
         spatial_names = ["x", "y", "z"][: self.mesh.X.shape[1]]
-        for k, name in enumerate(self.geo_space.get_names("H1")):
+        geo_spaces = self.geo_space.get_spaces()
+        coords = self.geo_dof.get_node_coordinates(geo_spaces[0], self.mesh.X)
+        for k, name in enumerate(self.geo_space.get_names(geo_spaces[0])):
             if name in spatial_names:
-                model.set_data(f"geo.{name}", self.mesh.X[:, k])
+                model.set_data(f"geo.{name}", coords[:, k])
 
         # Link the output to the finite element class
         return model
+
+    def field_to_nodes(self, field, kind="soln"):
+        """
+        Reorder a solution field from internal DOF ordering to mesh-node
+        ordering.
+
+        The DOF handler numbers degrees of freedom in order of first
+        encounter while traversing the mesh, which is a permutation of the
+        mesh node ordering (not the identity). Solution vectors returned by
+        the model are therefore indexed by DOF number, whereas plotting and
+        post-processing routines index by mesh node. This method scatters a
+        DOF-ordered field back into node ordering so that ``result[node]``
+        holds the value at that mesh vertex.
+
+        Only valid for degree-1 H1 fields, where DOFs correspond one-to-one
+        with mesh vertices.
+
+        Parameters
+        ----------
+        field : np.ndarray
+            Values indexed by global DOF number.
+        kind : str
+            Which DOF set to use: "soln" (default), "geo", or "data".
+
+        Returns
+        -------
+        np.ndarray
+            Values reordered so they are indexed by mesh node number.
+        """
+        dof = {
+            "soln": self.soln_dof,
+            "geo": self.geo_dof,
+            "data": self.data_dof,
+        }.get(kind)
+        if dof is None:
+            raise ValueError(f"Unknown field kind '{kind}'")
+
+        space = dof.solution_space.get_spaces()[0]
+        dof_to_node = dof.get_vertex_dof_to_node(space)
+
+        field = np.asarray(field)
+        result = np.empty_like(field)
+        result[dof_to_node] = field
+        return result
+        # return field[dof_to_node >= 0]

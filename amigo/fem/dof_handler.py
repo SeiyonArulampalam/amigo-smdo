@@ -18,11 +18,12 @@ class DofHandler:
     numbering separately to u, v, w, etc.
     """
 
-    def __init__(self, mesh: Mesh, space: SolutionSpace):
+    def __init__(self, mesh: Mesh, solution_space: SolutionSpace):
         self.mesh = mesh
-        self.space = space
+        self.solution_space = solution_space
 
         # Number of DOFs associated with each FunctionSpace
+        #  (FunctionSpace) -> int
         self._num_dof = {}
 
         # Element connectivity for each function space
@@ -41,7 +42,7 @@ class DofHandler:
 
     def get_num_dof(self, func_space: FunctionSpace) -> int:
         """
-        Return the total number of canonical DOFs for a FunctionSpace.
+        Return the total number of DOFs for a FunctionSpace.
         """
         return self._num_dof[func_space]
 
@@ -57,6 +58,20 @@ class DofHandler:
             Shape (num_elements, num_element_dof).
         """
         return self._dof_conn[(func_space, domain, cell_type)]
+
+    def get_dof_in_domain(self, name: str, domain: str):
+        """
+        Return all the DOFs for the given variable name in the specified domain
+        """
+
+        # Get the function space associated with the variable name
+        func_space = self.solution_space.get_space(name)
+
+        all_dof = []
+        for cell_type in self.mesh.get_cell_types(domain):
+            all_dof.extend(self._dof_conn[(func_space, domain, cell_type)])
+
+        return np.array(all_dof, dtype=np.int64)
 
     def get_edge_orientation(
         self, func_space: FunctionSpace, domain: str, cell_type: CellType
@@ -82,7 +97,7 @@ class DofHandler:
         Build the DOF numbering independently for each FunctionSpace.
         """
 
-        for func_space in self.space.get_spaces():
+        for func_space in self.solution_space.get_spaces():
             self._build_space(func_space)
 
     def _build_space(self, func_space: FunctionSpace):
@@ -100,9 +115,21 @@ class DofHandler:
 
         next_dof = 0
 
+        # Build the layouts
+        elem_layouts = {}
         for domain in self.mesh.get_domains():
             for cell_type in self.mesh.get_cell_types(domain):
-                layout = self._get_element_layout(func_space, cell_type)
+                if not (func_space, cell_type) in elem_layouts:
+                    elem_layouts[(func_space, cell_type)] = DofLayout.make_layout(
+                        func_space, cell_type
+                    )
+
+        # For each cell type in each domain
+        for domain in self.mesh.get_domains():
+            for cell_type in self.mesh.get_cell_types(domain):
+                layout = elem_layouts[(func_space, cell_type)]
+
+                # Get the vertex connectivity
                 vertex_conn = self.mesh.get_vertex_conn(domain, cell_type)
                 nelem = vertex_conn.shape[0]
 
@@ -123,43 +150,42 @@ class DofHandler:
                         domain, cell_type
                     )
 
+                # Create the connectivity
                 conn = np.empty((nelem, layout.ndof), dtype=np.int64)
 
                 for elem in range(nelem):
                     # Vertex DOFs
-                    for entity_dof, local_dof in enumerate(layout.vertex_dofs):
-                        entity_id = int(vertex_conn[elem, entity_dof])
+                    for vertex_index, local_dof in enumerate(layout.vertex_dofs):
+                        entity_id = int(vertex_conn[elem, vertex_index])
 
                         key = self._make_entity_key(
                             func_space=func_space,
                             domain=domain,
-                            cell_type=cell_type,
-                            elem=elem,
                             entity_id=entity_id,
-                            local_entity=entity_dof,
-                            entity_dof=entity_dof,
+                            entity_dof=0,
                         )
 
                         if key not in vertex_dof:
                             vertex_dof[key] = next_dof
                             next_dof += 1
 
-                        conn[elem, local_dof] = vertex_dof[key]
+                        conn[elem, vertex_index] = vertex_dof[key]
 
                     # Edge DOFs
-                    for local_edge, local_dofs in enumerate(layout.edge_dofs):
-                        entity_id = int(edge_conn[elem, local_edge])
+                    for edge_index, local_dofs in enumerate(layout.edge_dofs):
+                        entity_id = int(edge_conn[elem, edge_index])
 
                         for entity_dof, local_dof in enumerate(local_dofs):
+                            # Flip the edge orientation
+                            edge_entity_dof = entity_dof
+                            if edge_orientation[elem, edge_index] < 0:
+                                edge_entity_dof = len(local_dofs) - 1 - entity_dof
 
                             key = self._make_entity_key(
                                 func_space=func_space,
                                 domain=domain,
-                                cell_type=cell_type,
-                                elem=elem,
                                 entity_id=entity_id,
-                                local_entity=local_edge,
-                                entity_dof=entity_dof,
+                                entity_dof=edge_entity_dof,
                             )
 
                             if key not in edge_dof:
@@ -173,14 +199,10 @@ class DofHandler:
                         entity_id = int(face_conn[elem, local_face])
 
                         for entity_dof, local_dof in enumerate(local_dofs):
-
                             key = self._make_entity_key(
                                 func_space=func_space,
                                 domain=domain,
-                                cell_type=cell_type,
-                                elem=elem,
                                 entity_id=entity_id,
-                                local_entity=local_face,
                                 entity_dof=entity_dof,
                             )
 
@@ -191,7 +213,7 @@ class DofHandler:
                             conn[elem, local_dof] = face_dof[key]
 
                     # Cell-interior DOFs
-                    for entity_dof, local_dof in enumerate(layout.interior_dofs):
+                    for entity_dof, local_dof in enumerate(layout.cell_dofs):
                         # Interior DOFs belong to the element itself.
                         #
                         # The domain/cell_type/elem tuple uniquely
@@ -220,10 +242,7 @@ class DofHandler:
     def _make_entity_key(
         func_space: FunctionSpace,
         domain: str,
-        cell_type: CellType,
-        elem: int,
         entity_id: int,
-        local_entity: int,
         entity_dof: int,
     ):
         """
@@ -235,9 +254,6 @@ class DofHandler:
 
         COMPONENT
             DOFs are shared only inside the same domain/component.
-
-        DISCONTINUOUS
-            No DOFs are shared between elements.
         """
 
         conformity = func_space.conformity
@@ -245,28 +261,8 @@ class DofHandler:
             return (entity_id, entity_dof)
         elif conformity == Conformity.COMPONENT:
             return (domain, entity_id, entity_dof)
-        elif conformity == Conformity.DISCONTINUOUS:
-            return (domain, cell_type, elem, local_entity, entity_dof)
 
         raise ValueError(f"Unsupported conformity {conformity}")
-
-    # ------------------------------------------------------------------
-    # Element layout lookup
-    # ------------------------------------------------------------------
-
-    def _get_element_layout(
-        self,
-        func_space: FunctionSpace,
-        cell_type: CellType,
-    ):
-        """
-        Return the EntityDofLayout for this FunctionSpace and CellType.
-
-        Replace the body of this method with however you store your
-        reference-element layouts.
-        """
-
-        return DofLayout.make(func_space, cell_type)
 
 
 class DofSource(am.Component):
@@ -305,6 +301,9 @@ class DegreesOfFreedom:
         self.dof_handler = DofHandler(mesh, solution_space)
 
         return
+
+    def get_dof_handler(self):
+        return self.dof_handler
 
     def add_source(self, model: am.Model):
 
@@ -370,4 +369,226 @@ class DegreesOfFreedom:
                         f"{self.name}.{name}", f"{elem_name}.{name}", src_indices=conn
                     )
 
-            # TODO: Add the signs for H(div) here...
+            # TODO: Add the signs for H(div) here???
+
+    def get_vertex_dof_to_node(self, space):
+        """
+        Build a mapping from global DOF number to mesh vertex index for the
+        vertex DOFs of a degree-1 H1 FunctionSpace.
+
+        The DOF handler numbers DOFs in order of first encounter while
+        traversing domains/elements, which is a permutation of the mesh node
+        ordering (not the identity). To write nodal quantities such as the
+        geometry coordinates into the data vector, we must scatter each mesh
+        node's value into the slot of the DOF that represents it.
+
+        Returns
+        -------
+        dof_to_node : np.ndarray
+            Array of length get_num_dof(space) where dof_to_node[dof] is the
+            mesh node index represented by that DOF.
+        """
+        ndof = self.dof_handler.get_num_dof(space)
+        dof_to_node = np.full(ndof, -1, dtype=np.int64)
+
+        # Build the layouts
+        elem_layouts = {}
+        for domain in self.mesh.get_domains():
+            for cell_type in self.mesh.get_cell_types(domain):
+                if not (space, cell_type) in elem_layouts:
+                    elem_layouts[(space, cell_type)] = DofLayout.make_layout(
+                        space, cell_type
+                    )
+
+        for domain in self.mesh.get_domains():
+            for cell_type in self.mesh.get_cell_types(domain):
+                # DOF connectivity (global DOF numbers) for this chunk
+                conn = self.dof_handler.get_dof_conn(space, domain, cell_type)
+
+                # Mesh vertex connectivity (global node numbers)
+                vertex_conn = self.mesh.get_vertex_conn(domain, cell_type)
+
+                layout = elem_layouts[(space, cell_type)]
+
+                # The first len(vertex_dofs) local DOFs are the vertex DOFs,
+                # placed at layout.vertex_dofs local positions and aligned with
+                # the mesh vertex ordering.
+                for local_vertex, local_dof in enumerate(layout.vertex_dofs):
+                    dof_to_node[conn[:, local_dof]] = vertex_conn[:, local_vertex]
+
+        return dof_to_node
+
+    def get_node_coordinates(self, space, X):
+        """
+        Reorder mesh node coordinates X (shape (num_nodes, dim)) so that the
+        result is indexed by global DOF number for a degree-1 H1 geometry
+        space. coords[dof] == X[node_represented_by_dof].
+        """
+        dof_to_node = self.get_vertex_dof_to_node(space)
+        if np.any(dof_to_node < 0):
+            raise ValueError(
+                "Some geometry DOFs are not associated with a mesh vertex; "
+                "setting nodal coordinates requires a degree-1 H1 geometry space."
+            )
+        return X[dof_to_node]
+
+
+class ScaledBC(am.Component):
+    def __init__(self, name, input_name=[], scale=[1.0, 1.0]):
+        super().__init__(name)
+
+        if len(scale) != 2:
+            raise ValueError("scale must be of length 2")
+
+        self.input_name = input_name
+
+        self.add_constant(f"scale_left", value=scale[0])
+        self.add_constant(f"scale_right", value=scale[1])
+
+        for name in self.input_name:
+            self.add_input(f"{name}_left", value=1.0)
+            self.add_input(f"{name}_right", value=1.0)
+            self.add_constraint(f"res_{name}")
+
+        return
+
+    def compute(self):
+        scale_left = self.constants["scale_left"]
+        scale_right = self.constants["scale_right"]
+
+        for name in self.input_name:
+            self.constraints[f"res_{name}"] = (
+                scale_left * self.inputs[f"{name}_left"]
+                + scale_right * self.inputs[f"{name}_right"]
+            )
+        return
+
+
+class BoundaryConditions:
+    def __init__(
+        self,
+        bc_name: str,
+        dof_handler: DofHandler,
+        bc={},
+        integrand_formulation: str = "potential",
+    ):
+        if not (
+            bc["type"] == "dirichlet"
+            or bc["type"] == "continuity"
+            or bc["type"] == "scaled"
+        ):
+            typ = bc["type"]
+            raise ValueError(f"Unrecognized boundary condition type {typ}")
+        self.bc_name = bc_name
+        self.dof_handler = dof_handler
+        self.bc = bc
+        self.integrand_formulation = integrand_formulation
+        return
+
+    def _get_target_dof(
+        self,
+        name: str,
+        targets: list[str],
+        start: bool = True,
+        end: bool = True,
+    ):
+        all_dof = []
+        for target in targets:
+            dof = self.dof_handler.get_dof_in_domain(name, target)
+            all_dof.extend(dof)
+
+        unique = np.unique(all_dof)
+
+        # unique = list(dict.fromkeys(all_dof))
+
+        if not start or not end:
+            raise NotImplementedError
+
+            # This logic no longer works - need to find a better way
+            # if not start:
+            #     unique = unique[1:]
+            # if not end:
+            #     unique = unique[:-1]
+
+        return unique
+
+    # def _reorder_nodes(self, nodes_left, nodes_right):
+    #     nodes_left = np.array(nodes_left)
+    #     nodes_right = np.array(nodes_right)
+
+    #     y_left = self.mesh.X[nodes_left, 1]
+    #     y_right = self.mesh.X[nodes_right, 1]
+
+    #     idx_left = np.argsort(y_left)
+    #     idx_right = np.argsort(y_right)
+
+    #     return nodes_left[idx_left], nodes_right[idx_right]
+
+    # def _get_matched_nodes(self, targets, start=True, end=True):
+    #     left_target_lines = targets[0]
+    #     right_target_lines = targets[1]
+    #     nodes_left = self._get_bc_nodes(left_target_lines, start, end)
+    #     nodes_right = self._get_bc_nodes(right_target_lines, start, end)
+
+    #     if len(nodes_left) != len(nodes_right):
+    #         raise Exception(f"nnodes left != nnodes right")
+
+    #     # Reorder the nodes to match
+    #     return self._reorder_nodes(nodes_left, nodes_right)
+
+    def add_bcs(self, model):
+        """Add the boundary conditions to the model"""
+
+        if self.bc["type"] == "dirichlet":
+            input_names = self.bc["input"]
+            for name in input_names:
+                dof = self._get_target_dof(name, self.bc["target"])
+
+                # Fix the DOF
+                model.add_fixed(f"soln.{name}", dof)
+                if self.integrand_formulation == "weak":
+                    model.add_fixed(f"multiplier.res_{name}", dof)
+
+        else:
+            raise NotImplementedError
+            # targets = self.bc["target"]
+            # start = self.bc.get("start", True)
+            # end = self.bc.get("end", True)
+
+            # nodes_left, nodes_right = self._get_matched_nodes(
+            #     targets, start=start, end=end
+            # )
+
+            # input_names = self.bc["input"]
+            # if self.bc["type"] == "continuity":
+            #     for name in input_names:
+            #         model.link(
+            #             f"soln.{name}",
+            #             f"soln.{name}",
+            #             src_indices=nodes_left,
+            #             tgt_indices=nodes_right,
+            #         )
+
+            # elif self.bc["type"] == "scaled":
+            #     scale = self.bc["scale"]
+            #     class_name = f"ScaledBC_{self.bc_name}"
+            #     bc_src = ScaledBC(class_name, input_names, scale=scale)
+
+            #     if len(nodes_left) > 0:
+            #         model.add_component(
+            #             f"{self.bc_name}",
+            #             len(nodes_left),
+            #             bc_src,
+            #         )
+
+            #         for name in input_names:
+            #             model.link(
+            #                 f"soln.{name}",
+            #                 f"{self.bc_name}.{name}_left",
+            #                 src_indices=nodes_left,
+            #             )
+            #             model.link(
+            #                 f"soln.{name}",
+            #                 f"{self.bc_name}.{name}_right",
+            #                 src_indices=nodes_right,
+            #             )
