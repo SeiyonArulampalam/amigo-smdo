@@ -1,10 +1,12 @@
 import amigo as am
+from .cell_types import CellType, DofLayout, REFERENCE_CELLS
 import numpy as np
 from .element import FiniteElement, FiniteElementOutput
 from .fem_space import SolutionSpace
 from .basis import make_basis
 from .dof_handler import DofSource, DegreesOfFreedom, BoundaryConditions
 from .quadrature import make_quadrature, ReducedQuadQuadrature
+import pyvista as pv
 
 
 class Problem:
@@ -326,3 +328,66 @@ class Problem:
         result[dof_to_node] = field
         return result
         # return field[dof_to_node >= 0]
+
+    def visualize(self, x, field, domain):
+        """
+        Visualize an H1 triangle solution field of degree 1 or 2.
+        """
+        grid = self._build_visualization_grid(x, field=field, domain=domain)
+        grid.plot(scalars=field, show_edges=False, cmap="coolwarm")
+        return grid
+
+    def save_vtu(self, x, field, domain):
+        grid = self._build_visualization_grid(x, field=field, domain=domain)
+        grid.save("output_field.vtu")
+        return
+
+    def _build_visualization_grid(self, x, field, domain):
+        """
+        Build a PyVista grid for an H1 triangle solution field of degree 1 or 2
+        on a mesh whose geometry is only P1.
+        """
+        ctype = CellType.TRIANGLE
+
+        soln_space = self.soln_dof.solution_space.get_spaces()[0]
+        dof_handler = self.soln_dof.get_dof_handler()
+        layout = DofLayout.make_layout(soln_space, ctype)
+        ndof_local = len(layout.pts)
+
+        # Map the number of local DOFs to the matching PyVista cell type.
+        pv_cell_type = {
+            3: pv.CellType.TRIANGLE,  # degree 1
+            6: pv.CellType.QUADRATIC_TRIANGLE,  # degree 2
+        }.get(ndof_local)
+
+        if pv_cell_type is None:
+            raise NotImplementedError(
+                "build_visualization_grid supports degree-1 and degree-2 H1 "
+                f"triangles (got degree={soln_space.degree}, "
+                f"ndof/elem={ndof_local})."
+            )
+
+        # Global DOF connectivity for the solution space: (nelem, ndof_local),
+        soln_conn = dof_handler.get_dof_conn(soln_space, domain, ctype)
+
+        # P1 vertex connectivity and coordinates for the geometry.
+        vertex_conn = self.mesh.get_vertex_conn(domain, ctype)  # (nelem, 3)
+        Xv = np.asarray(self.mesh.X)  # (nnodes, dim)
+        dim = Xv.shape[1]
+
+        # Reference elment node layout
+        param = np.asarray(layout.pts)  # (ndof_local, 2), (xi, eta)
+        xi, eta = param[:, 0], param[:, 1]
+        N = np.stack([1.0 - xi - eta, xi, eta], axis=1)  # (ndof_local, 3)
+
+        ndof_global = dof_handler.get_num_dof(soln_space)
+        points = np.zeros((ndof_global, 3))
+        for e in range(soln_conn.shape[0]):
+            vcoords = Xv[vertex_conn[e]]  # (3, dim)
+            phys = N @ vcoords  # (ndof_local, dim)
+            for a in range(ndof_local):
+                points[soln_conn[e, a], :dim] = phys[a]
+
+        grid = pv.UnstructuredGrid({pv_cell_type: soln_conn}, points)
+        grid.point_data[field] = np.asarray(x[field])
+        return grid

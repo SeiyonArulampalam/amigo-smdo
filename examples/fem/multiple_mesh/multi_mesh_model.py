@@ -175,6 +175,8 @@ u_domain1 = x["Mesh1.soln.u"]
 max_domain = np.max(np.maximum(u_domain0, u_domain1))
 min_domain = np.min(np.minimum(u_domain0, u_domain1))
 
+problem.visualize(x, "Mesh0.soln.u", "SURFACE1")
+
 # TODO: Fix plot
 # # Plot solution field
 # fig, ax = plt.subplots()

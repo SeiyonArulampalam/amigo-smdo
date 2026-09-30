@@ -312,25 +312,51 @@ class DegreesOfFreedom:
             if len(names) == 0:
                 continue
 
-            input_names, data_names, con_names = [], [], []
-            if self.kind == "input":
-                input_names = names
-            elif self.kind == "data":
-                data_names = names
-            elif self.kind == "multiplier":
-                con_names = [f"res_{name}" for name in names]
+            if space.func_space == Space.CONST:
+                # Create a sub-model for each data set
+                sub_model = am.Model()
+                for data_name in names:
 
-            # Create the source component
-            dof_src = DofSource(
-                input_names=input_names, con_names=con_names, data_names=data_names
-            )
+                    domains = self.mesh.get_domains()
 
-            # Get the number of degrees of freedom associated with the
-            # associated space
-            ndof = self.dof_handler.get_num_dof(space)
+                    domain_names = [name for name in domains]
+                    input_names, data_names, con_names = [], [], []
+                    if self.kind == "input":
+                        input_names = domain_names
+                    elif self.kind == "data":
+                        data_names = domain_names
+                    elif self.kind == "multiplier":
+                        con_names = [f"res_{name}" for name in domain_names]
 
-            # Add the dof from the source mesh
-            model.add_component(self.name, ndof, dof_src)
+                    dof_src = DofSource(
+                        input_names=input_names,
+                        con_names=con_names,
+                        data_names=data_names,
+                    )
+                    sub_model.add_component(data_name, 1, dof_src)
+
+                model.add_model(self.name, sub_model)
+
+            else:
+                input_names, data_names, con_names = [], [], []
+                if self.kind == "input":
+                    input_names = names
+                elif self.kind == "data":
+                    data_names = names
+                elif self.kind == "multiplier":
+                    con_names = [f"res_{name}" for name in names]
+
+                # Create the source component
+                dof_src = DofSource(
+                    input_names=input_names, con_names=con_names, data_names=data_names
+                )
+
+                # Get the number of degrees of freedom associated with the
+                # associated space
+                ndof = self.dof_handler.get_num_dof(space)
+
+                # Add the dof from the source mesh
+                model.add_component(self.name, ndof, dof_src)
 
         return
 
@@ -342,32 +368,42 @@ class DegreesOfFreedom:
             if len(names) == 0:
                 continue
 
-            if self.kind == "multiplier":
-                con_names = [f"res_{name}" for name in names]
-                names = con_names
-
-            # Get the connectivity for the function space
-            conn = self.dof_handler.get_dof_conn(space, domain, cell_type)
-
-            # Link the degrees of freedom
-            if space.func_space == Space.HDIV:
+            if space.func_space == Space.CONST:
                 for name in names:
                     model.link(
-                        f"{self.name}.{name}",
-                        f"{elem_name}.{name}[:, 0, :]",
-                        src_indices=conn,
+                        f"{self.name}.{name}.{domain}",
+                        f"{elem_name}.{name}[:]",
                     )
-                for name in names:
-                    model.link(
-                        f"{self.name}.{name}",
-                        f"{elem_name}.{name}[:, 1, :]",
-                        src_indices=conn,
-                    )
+
             else:
-                for name in names:
-                    model.link(
-                        f"{self.name}.{name}", f"{elem_name}.{name}", src_indices=conn
-                    )
+                if self.kind == "multiplier":
+                    con_names = [f"res_{name}" for name in names]
+                    names = con_names
+
+                # Get the connectivity for the function space
+                conn = self.dof_handler.get_dof_conn(space, domain, cell_type)
+
+                # Link the degrees of freedom
+                if space.func_space == Space.HDIV:
+                    for name in names:
+                        model.link(
+                            f"{self.name}.{name}",
+                            f"{elem_name}.{name}[:, 0, :]",
+                            src_indices=conn,
+                        )
+                    for name in names:
+                        model.link(
+                            f"{self.name}.{name}",
+                            f"{elem_name}.{name}[:, 1, :]",
+                            src_indices=conn,
+                        )
+                else:
+                    for name in names:
+                        model.link(
+                            f"{self.name}.{name}",
+                            f"{elem_name}.{name}",
+                            src_indices=conn,
+                        )
 
             # TODO: Add the signs for H(div) here???
 

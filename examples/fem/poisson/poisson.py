@@ -1,7 +1,7 @@
 import argparse
 import amigo as am
 import numpy as np
-from amigo.fem import SolutionSpace, Mesh, Problem
+from amigo.fem import SolutionSpace, Mesh, Problem, FunctionSpace, Space
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 
@@ -28,7 +28,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-soln_space = SolutionSpace({"u": "H1"})
+H1 = FunctionSpace(func_space=Space.H1, degree=2)
+soln_space = SolutionSpace({"u": H1})
 geo_space = SolutionSpace({"x": "H1", "y": "H1"})
 data_space = SolutionSpace({})
 
@@ -47,7 +48,7 @@ bc_map = {
 }
 
 # Load the plate
-mesh = Mesh("../mitc_plate/plate.inp")
+mesh = Mesh("plate.inp")
 
 problem = Problem(
     mesh,
@@ -86,10 +87,11 @@ ypts = data["geo.y"]
 u = x["soln.u"]
 u_exact = np.sin(np.pi * (xpts + 0.5)) * np.sin(np.pi * (ypts + 0.5))
 
-print(np.max(np.absolute(u - u_exact)) / np.max(u_exact))
+# print(np.max(np.absolute(u - u_exact)) / np.max(u_exact))
 
 # TODO: Fix plot
 # fig, ax = plt.subplots(1, 2, figsize=(8, 3))
 # mesh.plot(u, ax=ax[0])
 # mesh.plot(u_exact, ax=ax[1])
 # plt.show()
+problem.visualize(x, "soln.u", "SURFACE1")
