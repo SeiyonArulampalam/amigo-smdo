@@ -2,7 +2,7 @@ import amigo as am
 from .cell_types import CellType, DofLayout, REFERENCE_CELLS
 import numpy as np
 from .element import FiniteElement, FiniteElementOutput
-from .fem_space import SolutionSpace
+from .fem_space import Space, SolutionSpace
 from .basis import make_basis
 from .dof_handler import DofSource, DegreesOfFreedom, BoundaryConditions
 from .quadrature import make_quadrature, ReducedQuadQuadrature
@@ -213,6 +213,9 @@ class Problem:
         # Figure out which elements need to be created
         self._create_element_objs()
 
+        # Get the dof handler
+        dof_handler = self.soln_dof.get_dof_handler()
+
         # Add the element component objects
         for integrand_name in self.integrand_map:
             targets = self.integrand_map[integrand_name]["target"]
@@ -234,6 +237,15 @@ class Problem:
                     # Link the constraints (if using the weak formulation)
                     if self.test_dof is not None:
                         self.test_dof.link_dof(model, target, ctype, comp_name)
+
+                    # Set the element signs if relevant
+                    for space in self.soln_space.get_spaces():
+                        if space.func_space == Space.HDIV:
+                            signs = dof_handler.get_dof_signs(space, target, ctype)
+                            model.set_data(f"{comp_name}.hdiv_signs", signs)
+                        elif space.func_space == Space.HCURL:
+                            signs = dof_handler.get_dof_signs(space, target, ctype)
+                            model.set_data(f"{comp_name}.hcurl_signs", signs)
 
         # Add BC components and links
         for bc in self.boundary_conditions:

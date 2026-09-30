@@ -31,6 +31,10 @@ class DofHandler:
         # Each array has shape (num_elements, num_element_dof)
         self._dof_conn = {}
 
+        # Save the dof signs for H(div) and H(curl) spaces
+        #   (FunctionSpace, domain, CellType) -> ndarray [+/- 1] only
+        self._dof_signs = {}
+
         # Orientation information associated with each element chunk.
         # These are mesh-topology orientations, not yet basis-specific
         # transformations.
@@ -47,7 +51,7 @@ class DofHandler:
         return self._num_dof[func_space]
 
     def get_dof_conn(
-        self, func_space: FunctionSpace, domain: str, cell_type: CellType
+        self, space: FunctionSpace, domain: str, cell_type: CellType
     ) -> np.ndarray:
         """
         Return element-local -> global DOF connectivity.
@@ -57,7 +61,23 @@ class DofHandler:
         conn : ndarray
             Shape (num_elements, num_element_dof).
         """
-        return self._dof_conn[(func_space, domain, cell_type)]
+        return self._dof_conn[(space, domain, cell_type)]
+
+    def get_dof_signs(
+        self, space: FunctionSpace, domain: str, cell_type: CellType
+    ) -> np.ndarray:
+        """
+        Return element-local -> global DOF array of sign transformations.
+
+        Returns
+        -------
+        signs : ndarray of +/- 1s
+            Shape (num_elements, num_element_dof).
+        """
+        if space.func_space == Space.HDIV or space.func_space == Space.HCURL:
+            return self._dof_signs[(space, domain, cell_type)]
+        else:
+            raise NotImplementedError
 
     def get_dof_in_domain(self, name: str, domain: str):
         """
@@ -65,11 +85,11 @@ class DofHandler:
         """
 
         # Get the function space associated with the variable name
-        func_space = self.solution_space.get_space(name)
+        space = self.solution_space.get_space(name)
 
         all_dof = []
         for cell_type in self.mesh.get_cell_types(domain):
-            all_dof.extend(self._dof_conn[(func_space, domain, cell_type)])
+            all_dof.extend(self._dof_conn[(space, domain, cell_type)])
 
         return np.array(all_dof, dtype=np.int64)
 
@@ -153,6 +173,14 @@ class DofHandler:
                 # Create the connectivity
                 conn = np.empty((nelem, layout.ndof), dtype=np.int64)
 
+                # Create the signs array
+                signs = None
+                if (
+                    func_space.func_space == Space.HDIV
+                    or func_space.func_space == Space.HCURL
+                ):
+                    signs = np.ones((nelem, layout.ndof), dtype=float)
+
                 for elem in range(nelem):
                     # Vertex DOFs
                     for vertex_index, local_dof in enumerate(layout.vertex_dofs):
@@ -178,8 +206,10 @@ class DofHandler:
                         for entity_dof, local_dof in enumerate(local_dofs):
                             # Flip the edge orientation
                             edge_entity_dof = entity_dof
+                            edge_sign = 1.0
                             if edge_orientation[elem, edge_index] < 0:
                                 edge_entity_dof = len(local_dofs) - 1 - entity_dof
+                                edge_sign = -1.0
 
                             key = self._make_entity_key(
                                 func_space=func_space,
@@ -193,6 +223,7 @@ class DofHandler:
                                 next_dof += 1
 
                             conn[elem, local_dof] = edge_dof[key]
+                            signs[elem, local_dof] = edge_sign
 
                     # Face DOFs
                     for local_face, local_dofs in enumerate(layout.face_dofs):
@@ -229,6 +260,7 @@ class DofHandler:
                 # Store element connectivity.
                 chunk_key = (func_space, domain, cell_type)
                 self._dof_conn[chunk_key] = conn
+                self._dof_signs[chunk_key] = signs
 
                 if edge_orientation is not None:
                     self._edge_orientation[chunk_key] = edge_orientation
@@ -405,7 +437,7 @@ class DegreesOfFreedom:
                             src_indices=conn,
                         )
 
-            # TODO: Add the signs for H(div) here???
+        return
 
     def get_vertex_dof_to_node(self, space):
         """

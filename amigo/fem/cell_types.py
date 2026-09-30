@@ -631,340 +631,506 @@ class DofLayout:
         """
         Construct nodal H(div) DOFs on a reference cell.
 
-        The target spaces are the Raviart-Thomas family, numbered so that
-        degree = 1 is the lowest-order element (matching TriangleRTBasis /
-        QuadRTBasis):
+        Topological ownership follows the mixed-dimensional embedding convention:
 
-            SEGMENT        P_k                      (k + 1 DOFs)
-            TRIANGLE       RT_k                     (k (k + 2) DOFs)
-            QUADRILATERAL  RTCF_k, Q_{k,k-1} x Q_{k-1,k}
-            TETRAHEDRON    RT_k                     (k (k + 1) (k + 3) / 2 DOFs)
-            HEXAHEDRON     NCF_k, Q_{k,k-1,k-1} x ...
-            PRISM          lowest order only (degree = 1)
-            PYRAMID        lowest order only (degree = 1)
+            POINT:
+                no H(div) space
 
-        Each DOF is a point evaluation u(pt) . dir.
+            SEGMENT:
+                endpoint flux DOFs -> vertices
+                remaining DOFs     -> edge
 
-        Facet DOFs (edges in 2D, faces in 3D, vertices in 1D) evaluate the
-        normal flux. Their direction is the outward normal scaled by the
-        reference facet measure, n * |f|. Under the contravariant Piola map
-        u_phys . n_phys |f_phys| = u_ref . n_ref |f_ref|, so this scaling makes
-        facet DOFs agree between neighbouring cells of different reference
-        types (e.g. the triangle hypotenuse gets (1, 1), the legs unit normals).
+            TRIANGLE / QUADRILATERAL:
+                normal-flux DOFs    -> edges
+                remaining DOFs      -> face
 
-        Facet points are a unisolvent set for P_{k-1} (simplex facets) or
-        Q_{k-1} (quadrilateral facets), taken strictly inside the facet.
+            3D cells:
+                normal-flux DOFs    -> faces
+                remaining DOFs      -> cell
 
-        Interior DOFs evaluate the Cartesian components of u, ordered
-        component-major. On simplices they sit on the interior points of a
-        principal lattice (unisolvent for P_{k-2}). On tensor-product cells,
-        component c uses i / k in direction c and i / (k + 1) in the others,
-        which completes a tensor Lagrange grid together with the facet points.
+        Thus only a 3D reference cell has cell_dofs.
 
-        The ordering is
+        Each DOF is a point evaluation
 
-            vertices (SEGMENT only; no vertex DOFs otherwise)
-            edge interiors (2D cells)
-            face interiors (3D cells)
-            cell interiors
+            u(pt) . dir
 
-        Parameters
-        ----------
-        ref_cell : ReferenceCell
-            Reference-cell topology and vertex coordinates.
-
-        degree : int
-            Raviart-Thomas degree k >= 1.
-
-        Returns
-        -------
-        pts : list[tuple[float, ...]]
-            Coordinates of all DOF evaluation points.
-
-        dirs : list[tuple[float, ...]]
-            Direction the vector field is dotted with at each DOF.
-
-        vertex_dofs : tuple[tuple[int, ...], ...]
-            DOFs associated with each vertex (non-empty only for SEGMENT).
-
-        edge_dofs : tuple[tuple[int, ...], ...]
-            Interior DOFs associated with each edge, ordered according
-            to ref_cell.edges (non-empty only for 2D cells).
-
-        face_dofs : tuple[tuple[int, ...], ...]
-            Interior DOFs associated with each face, ordered according
-            to ref_cell.faces (non-empty only for 3D cells).
-
-        cell_dofs : tuple[int, ...]
-            DOFs in the interior of the cell.
+        with facet directions chosen as outward normals scaled by facet measure.
         """
 
         ref_cell = REFERENCE_CELLS[cell_type]
 
-        if space.degree < 1:
-            raise ValueError("H(div) degree must be >= 1")
+        if space.degree != 1:
+            raise NotImplementedError
+        if not (
+            cell_type == CellType.SEGMENT
+            or cell_type == CellType.TRIANGLE
+            or cell_type == CellType.QUADRILATERAL
+        ):
+            raise NotImplementedError
 
-        k = space.degree
-        dim = ref_cell.dimension
-        verts = ref_cell.vertices
-        cell_type = ref_cell.cell_type
-
-        if cell_type == CellType.POINT:
-            raise ValueError("H(div) DOFs are not defined on a POINT cell")
-
-        if cell_type in (CellType.PRISM, CellType.PYRAMID) and k > 1:
-            raise NotImplementedError(
-                f"H(div) degree {k} is not implemented for {cell_type.name}; "
-                "only the lowest-order (degree = 1) element is available"
-            )
-
-        pts = []
-        dirs = []
-
-        vertex_dofs = []
-        edge_dofs = []
-        face_dofs = []
-        cell_dofs = []
-
-        def add_dof(x, d):
-            dof = len(pts)
-            pts.append(tuple(float(v) for v in x))
-            dirs.append(tuple(float(v) for v in d))
-            return dof
-
-        def weighted_point(indices, weights):
-            """
-            Affine combination of reference-cell vertices.
-            """
-            return tuple(
-                sum(weights[m] * verts[indices[m]][c] for m in range(len(indices)))
-                for c in range(dim)
-            )
-
-        def diff(a, b):
-            """
-            Vector from vertex b to vertex a.
-            """
-            return tuple(verts[a][c] - verts[b][c] for c in range(dim))
-
-        def cross(a, b):
-            return (
-                a[1] * b[2] - a[2] * b[1],
-                a[2] * b[0] - a[0] * b[2],
-                a[0] * b[1] - a[1] * b[0],
-            )
-
-        def unit(c):
-            """
-            Cartesian unit vector in direction c.
-            """
-            return tuple(1.0 if d == c else 0.0 for d in range(dim))
-
-        def edge_point(v0, v1, t):
-            return weighted_point((v0, v1), (1.0 - t, t))
-
-        def triangle_point(v0, v1, v2, l1, l2):
-            return weighted_point((v0, v1, v2), (1.0 - l1 - l2, l1, l2))
-
-        def quad_point(v0, v1, v2, v3, s, t):
-            """
-            Bilinear point on a quadrilateral with cyclic vertex ordering:
-
-                v3 ---- v2
-                |       |
-                |       |
-                v0 ---- v1
-            """
-            return weighted_point(
-                (v0, v1, v2, v3),
-                (
-                    (1.0 - s) * (1.0 - t),
-                    s * (1.0 - t),
-                    s * t,
-                    (1.0 - s) * t,
-                ),
-            )
-
-        def hex_point(x, y, z):
-            return weighted_point(
-                tuple(range(8)),
-                (
-                    (1 - x) * (1 - y) * (1 - z),
-                    x * (1 - y) * (1 - z),
-                    x * y * (1 - z),
-                    (1 - x) * y * (1 - z),
-                    (1 - x) * (1 - y) * z,
-                    x * (1 - y) * z,
-                    x * y * z,
-                    (1 - x) * y * z,
-                ),
-            )
-
-        # Facet normals (outward, scaled by the facet measure)
-        def edge_normal_2d(v0, v1):
-            # Edges are counterclockwise, so rotating the tangent by -90
-            # degrees points outward; |t| is the edge length.
-            tx, ty = diff(v1, v0)
-            return (ty, -tx)
-
-        def triangle_face_normal(v0, v1, v2):
-            # Faces are counterclockwise viewed from outside; |cross| = 2 * area
-            n = cross(diff(v1, v0), diff(v2, v0))
-            return tuple(0.5 * c for c in n)
-
-        def quad_face_normal(v0, v1, v2, v3):
-            # Planar parallelogram face: |cross| = area
-            return cross(diff(v1, v0), diff(v3, v0))
-
-        # Vertices
-        # Only a SEGMENT has vertex facets. The normal flux at an end point
-        # is +/- u, pointing away from the opposite vertex.
-        for v in range(len(verts)):
-            dofs = []
-
-            if cell_type == CellType.SEGMENT:
-                other = 1 - v
-                sign = 1.0 if verts[v][0] > verts[other][0] else -1.0
-                dofs.append(add_dof(verts[v], (sign,)))
-
-            vertex_dofs.append(tuple(dofs))
-
-        # Edges
-        # In 2D the edges are the facets: k normal-flux DOFs per edge at
-        # t = i / (k + 1), unisolvent for P_{k-1} on the edge.
-        # In 3D the edges carry no H(div) DOFs.
-        if dim >= 2:
-            for v0, v1 in ref_cell.edges:
-                dofs = []
-
-                if dim == 2:
-                    normal = edge_normal_2d(v0, v1)
-
-                    for i in range(1, k + 1):
-                        t = i / (k + 1)
-                        dofs.append(add_dof(edge_point(v0, v1, t), normal))
-
-                edge_dofs.append(tuple(dofs))
-
-        # Faces
-        # In 3D the faces are the facets.
-        #   triangle: strictly interior points of the lattice of order k + 2
-        #             (unisolvent for P_{k-1})
-        #   quad:     k x k tensor grid at i / (k + 1) (unisolvent for Q_{k-1})
-        if dim == 3:
-            if len(ref_cell.faces) != len(ref_cell.face_types):
-                raise ValueError(
-                    "ref_cell.faces and ref_cell.face_types must "
-                    "have the same length"
-                )
-
-            for face, face_type in zip(ref_cell.faces, ref_cell.face_types):
-                dofs = []
-
-                if face_type == CellType.TRIANGLE:
-
-                    v0, v1, v2 = face
-                    normal = triangle_face_normal(v0, v1, v2)
-                    n = k + 2
-
-                    for j in range(1, n - 1):
-                        for i in range(1, n - j):
-                            pt = triangle_point(v0, v1, v2, i / n, j / n)
-                            dofs.append(add_dof(pt, normal))
-
-                elif face_type == CellType.QUADRILATERAL:
-
-                    v0, v1, v2, v3 = face
-                    normal = quad_face_normal(v0, v1, v2, v3)
-
-                    for j in range(1, k + 1):
-                        for i in range(1, k + 1):
-                            pt = quad_point(v0, v1, v2, v3, i / (k + 1), j / (k + 1))
-                            dofs.append(add_dof(pt, normal))
-
-                else:
-                    raise ValueError(f"Unsupported H(div) face type: {face_type}")
-
-                face_dofs.append(tuple(dofs))
-
-        # Cell interior
         if cell_type == CellType.SEGMENT:
-
-            # Together with the two end points this gives k + 1 nodes for P_k
-            for i in range(1, k):
-                cell_dofs.append(add_dof(edge_point(0, 1, i / k), unit(0)))
+            pts = ((0.0,),)
+            edge_dofs = ((0,),)
+            dirs = ((1,),)
 
         elif cell_type == CellType.TRIANGLE:
-
-            # 2 * dim P_{k-2} DOFs: strictly interior points of the lattice
-            # of order k + 1, both Cartesian components at each point.
-            n = k + 1
-
-            for c in range(2):
-                for j in range(1, n - 1):
-                    for i in range(1, n - j):
-                        pt = triangle_point(0, 1, 2, i / n, j / n)
-                        cell_dofs.append(add_dof(pt, unit(c)))
+            pts = ((0.5, 0.0), (0.5, 0.5), (0.0, 0.5))
+            edge_dofs = ((0,), (1,), (2,))
+            dirs = ((0, -1), (1, 1), (-1, 0))
 
         elif cell_type == CellType.QUADRILATERAL:
-
-            # u_x in Q_{k,k-1}: x at i / k (interior), y at j / (k + 1)
-            # u_y in Q_{k-1,k}: x at i / (k + 1),      y at j / k (interior)
-            for j in range(1, k + 1):
-                for i in range(1, k):
-                    pt = quad_point(0, 1, 2, 3, i / k, j / (k + 1))
-                    cell_dofs.append(add_dof(pt, unit(0)))
-
-            for j in range(1, k):
-                for i in range(1, k + 1):
-                    pt = quad_point(0, 1, 2, 3, i / (k + 1), j / k)
-                    cell_dofs.append(add_dof(pt, unit(1)))
-
-        elif cell_type == CellType.TETRAHEDRON:
-
-            # 3 * dim P_{k-2} DOFs: strictly interior points of the lattice
-            # of order k + 2, all three Cartesian components at each point.
-            n = k + 2
-
-            for c in range(3):
-                for l in range(1, n - 2):
-                    for j in range(1, n - 1 - l):
-                        for i in range(1, n - j - l):
-                            l1 = i / n
-                            l2 = j / n
-                            l3 = l / n
-                            l0 = 1.0 - l1 - l2 - l3
-
-                            pt = weighted_point((0, 1, 2, 3), (l0, l1, l2, l3))
-                            cell_dofs.append(add_dof(pt, unit(c)))
-
-        elif cell_type == CellType.HEXAHEDRON:
-
-            # Component c: i / k (interior) in direction c and i / (k + 1)
-            # in the two transverse directions.
-            for c in range(3):
-                counts = [(k + 1 if d != c else k) for d in range(3)]
-
-                for l in range(1, counts[2]):
-                    for j in range(1, counts[1]):
-                        for i in range(1, counts[0]):
-                            pt = hex_point(i / counts[0], j / counts[1], l / counts[2])
-                            cell_dofs.append(add_dof(pt, unit(c)))
-
-        elif cell_type in (CellType.PRISM, CellType.PYRAMID):
-            # Lowest order: facet DOFs only
-            pass
-
-        else:
-            raise ValueError(f"Unsupported cell type: {cell_type}")
+            pts = ((0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0))
+            edge_dofs = ((0,), (1,), (2,), (3,))
+            dirs = ((0.0, -2.0), (2.0, 0.0), (0.0, 2.0), (-2.0, 0.0))
 
         return cls(
-            ref_cell=ref_cell,
-            space=space,
-            pts=pts,
-            dirs=dirs,
-            vertex_dofs=tuple(vertex_dofs),
-            edge_dofs=tuple(edge_dofs),
-            face_dofs=tuple(face_dofs),
-            cell_dofs=tuple(cell_dofs),
+            ref_cell=ref_cell, space=space, pts=pts, dirs=dirs, edge_dofs=edge_dofs
         )
+
+        # if space.degree < 1:
+        #     raise ValueError("H(div) degree must be >= 1")
+
+        # k = space.degree
+        # dim = ref_cell.dimension
+        # verts = ref_cell.vertices
+        # cell_type = ref_cell.cell_type
+
+        # if cell_type == CellType.POINT:
+        #     raise ValueError("H(div) DOFs are not defined on a POINT cell")
+
+        # if cell_type in (CellType.PRISM, CellType.PYRAMID) and k > 1:
+        #     raise NotImplementedError(
+        #         f"H(div) degree {k} is not implemented for {cell_type.name}; "
+        #         "only the lowest-order (degree = 1) element is available"
+        #     )
+
+        # pts = []
+        # dirs = []
+
+        # # Allocate one entry for every topological entity represented
+        # # by the reference cell.
+        # vertex_dofs = [[] for _ in ref_cell.vertices]
+        # edge_dofs = [[] for _ in ref_cell.edges]
+        # face_dofs = [[] for _ in ref_cell.faces]
+        # cell_dofs = []
+
+        # def add_dof(x, d):
+        #     dof = len(pts)
+
+        #     pts.append(tuple(float(v) for v in x))
+        #     dirs.append(tuple(float(v) for v in d))
+
+        #     return dof
+
+        # def weighted_point(indices, weights):
+        #     return tuple(
+        #         sum(weights[m] * verts[indices[m]][c] for m in range(len(indices)))
+        #         for c in range(dim)
+        #     )
+
+        # def diff(a, b):
+        #     return tuple(verts[a][c] - verts[b][c] for c in range(dim))
+
+        # def cross(a, b):
+        #     return (
+        #         a[1] * b[2] - a[2] * b[1],
+        #         a[2] * b[0] - a[0] * b[2],
+        #         a[0] * b[1] - a[1] * b[0],
+        #     )
+
+        # def unit(c):
+        #     return tuple(1.0 if d == c else 0.0 for d in range(dim))
+
+        # def edge_point(v0, v1, t):
+        #     return weighted_point(
+        #         (v0, v1),
+        #         (1.0 - t, t),
+        #     )
+
+        # def triangle_point(v0, v1, v2, l1, l2):
+        #     return weighted_point(
+        #         (v0, v1, v2),
+        #         (1.0 - l1 - l2, l1, l2),
+        #     )
+
+        # def quad_point(v0, v1, v2, v3, s, t):
+        #     return weighted_point(
+        #         (v0, v1, v2, v3),
+        #         (
+        #             (1.0 - s) * (1.0 - t),
+        #             s * (1.0 - t),
+        #             s * t,
+        #             (1.0 - s) * t,
+        #         ),
+        #     )
+
+        # def hex_point(x, y, z):
+        #     return weighted_point(
+        #         tuple(range(8)),
+        #         (
+        #             (1.0 - x) * (1.0 - y) * (1.0 - z),
+        #             x * (1.0 - y) * (1.0 - z),
+        #             x * y * (1.0 - z),
+        #             (1.0 - x) * y * (1.0 - z),
+        #             (1.0 - x) * (1.0 - y) * z,
+        #             x * (1.0 - y) * z,
+        #             x * y * z,
+        #             (1.0 - x) * y * z,
+        #         ),
+        #     )
+
+        # # ------------------------------------------------------------
+        # # Facet normals
+        # # ------------------------------------------------------------
+
+        # def edge_normal_2d(v0, v1):
+        #     # Reference-cell edges are counterclockwise.
+        #     # Rotating the tangent clockwise gives the outward normal.
+        #     #
+        #     # Its magnitude equals the edge length.
+        #     tx, ty = diff(v1, v0)
+        #     return (ty, -tx)
+
+        # def triangle_face_normal(v0, v1, v2):
+        #     # |cross| = 2 * face area
+        #     n = cross(
+        #         diff(v1, v0),
+        #         diff(v2, v0),
+        #     )
+        #     return tuple(0.5 * c for c in n)
+
+        # def quad_face_normal(v0, v1, v2, v3):
+        #     # For a planar parallelogram:
+        #     # |cross| = face area
+        #     return cross(
+        #         diff(v1, v0),
+        #         diff(v3, v0),
+        #     )
+
+        # # ============================================================
+        # # Vertices
+        # # ============================================================
+        # #
+        # # Only the 1D H(div) element has flux DOFs associated with
+        # # vertices. These are the two boundary facets of the segment.
+        # #
+
+        # if cell_type == CellType.SEGMENT:
+
+        #     for v in range(len(verts)):
+
+        #         other = 1 - v
+
+        #         sign = 1.0 if verts[v][0] > verts[other][0] else -1.0
+
+        #         vertex_dofs[v].append(
+        #             add_dof(
+        #                 verts[v],
+        #                 (sign,),
+        #             )
+        #         )
+
+        # # ============================================================
+        # # Edges
+        # # ============================================================
+
+        # if cell_type == CellType.SEGMENT:
+
+        #     # The SEGMENT itself is an edge in the mixed-dimensional
+        #     # topology.
+        #     #
+        #     # The two endpoint DOFs above supply the boundary values of
+        #     # P_k. The remaining k - 1 nodes belong to the edge itself.
+
+        #     if len(edge_dofs) != 1:
+        #         raise ValueError("SEGMENT reference cell must contain exactly one edge")
+
+        #     for i in range(1, k):
+
+        #         t = i / k
+
+        #         edge_dofs[0].append(
+        #             add_dof(
+        #                 edge_point(0, 1, t),
+        #                 unit(0),
+        #             )
+        #         )
+
+        # elif dim == 2:
+
+        #     # In 2D, the proper edges are the H(div) facets.
+        #     #
+        #     # Each edge receives k normal-flux DOFs, forming a
+        #     # unisolvent set for P_{k-1} on the edge.
+
+        #     for edge_index, (v0, v1) in enumerate(ref_cell.edges):
+
+        #         normal = edge_normal_2d(v0, v1)
+
+        #         for i in range(1, k + 1):
+
+        #             t = i / (k + 1)
+
+        #             edge_dofs[edge_index].append(
+        #                 add_dof(
+        #                     edge_point(v0, v1, t),
+        #                     normal,
+        #                 )
+        #             )
+
+        # # ============================================================
+        # # Faces
+        # # ============================================================
+
+        # if dim == 2:
+
+        #     # The TRIANGLE / QUADRILATERAL itself is a face in the
+        #     # mixed-dimensional topology.
+        #     #
+        #     # Therefore the RT interior DOFs belong to face_dofs[0],
+        #     # rather than cell_dofs.
+
+        #     if len(face_dofs) != 1:
+        #         raise ValueError(
+        #             f"{cell_type.name} reference cell must contain " "exactly one face"
+        #         )
+
+        #     if cell_type == CellType.TRIANGLE:
+
+        #         # 2 * dim(P_{k-2}) interior DOFs.
+        #         #
+        #         # Strictly interior points of the lattice of order k+1,
+        #         # with both Cartesian components evaluated at each point.
+
+        #         n = k + 1
+
+        #         for c in range(2):
+
+        #             for j in range(1, n - 1):
+        #                 for i in range(1, n - j):
+
+        #                     pt = triangle_point(0, 1, 2, i / n, j / n)
+
+        #                     face_dofs[0].append(add_dof(pt, unit(c)))
+
+        #     elif cell_type == CellType.QUADRILATERAL:
+
+        #         # u_x in Q_{k,k-1}
+        #         #
+        #         #     x: i/k
+        #         #     y: j/(k+1)
+
+        #         for j in range(1, k + 1):
+        #             for i in range(1, k):
+
+        #                 pt = quad_point(
+        #                     0,
+        #                     1,
+        #                     2,
+        #                     3,
+        #                     i / k,
+        #                     j / (k + 1),
+        #                 )
+
+        #                 face_dofs[0].append(
+        #                     add_dof(
+        #                         pt,
+        #                         unit(0),
+        #                     )
+        #                 )
+
+        #         # u_y in Q_{k-1,k}
+        #         #
+        #         #     x: i/(k+1)
+        #         #     y: j/k
+
+        #         for j in range(1, k):
+        #             for i in range(1, k + 1):
+
+        #                 pt = quad_point(
+        #                     0,
+        #                     1,
+        #                     2,
+        #                     3,
+        #                     i / (k + 1),
+        #                     j / k,
+        #                 )
+
+        #                 face_dofs[0].append(
+        #                     add_dof(
+        #                         pt,
+        #                         unit(1),
+        #                     )
+        #                 )
+
+        # elif dim == 3:
+
+        #     # In 3D the proper faces are the H(div) facets.
+        #     #
+        #     # These retain their normal-flux interpretation.
+
+        #     if len(ref_cell.faces) != len(ref_cell.face_types):
+        #         raise ValueError(
+        #             "ref_cell.faces and ref_cell.face_types must "
+        #             "have the same length"
+        #         )
+
+        #     for face_index, (face, face_type) in enumerate(
+        #         zip(ref_cell.faces, ref_cell.face_types)
+        #     ):
+
+        #         if face_type == CellType.TRIANGLE:
+
+        #             v0, v1, v2 = face
+
+        #             normal = triangle_face_normal(
+        #                 v0,
+        #                 v1,
+        #                 v2,
+        #             )
+
+        #             # P_{k-1} on the triangular face
+        #             n = k + 2
+
+        #             for j in range(1, n - 1):
+        #                 for i in range(1, n - j):
+
+        #                     pt = triangle_point(
+        #                         v0,
+        #                         v1,
+        #                         v2,
+        #                         i / n,
+        #                         j / n,
+        #                     )
+
+        #                     face_dofs[face_index].append(
+        #                         add_dof(
+        #                             pt,
+        #                             normal,
+        #                         )
+        #                     )
+
+        #         elif face_type == CellType.QUADRILATERAL:
+
+        #             v0, v1, v2, v3 = face
+
+        #             normal = quad_face_normal(
+        #                 v0,
+        #                 v1,
+        #                 v2,
+        #                 v3,
+        #             )
+
+        #             # Q_{k-1} on the quadrilateral face
+
+        #             for j in range(1, k + 1):
+        #                 for i in range(1, k + 1):
+
+        #                     pt = quad_point(
+        #                         v0,
+        #                         v1,
+        #                         v2,
+        #                         v3,
+        #                         i / (k + 1),
+        #                         j / (k + 1),
+        #                     )
+
+        #                     face_dofs[face_index].append(
+        #                         add_dof(
+        #                             pt,
+        #                             normal,
+        #                         )
+        #                     )
+
+        #         else:
+        #             raise ValueError(f"Unsupported H(div) face type: {face_type}")
+
+        # # ============================================================
+        # # 3D cell interior
+        # # ============================================================
+        # #
+        # # Only 3D cells have actual cell_dofs under this convention.
+        # #
+
+        # if cell_type == CellType.TETRAHEDRON:
+
+        #     # 3 * dim(P_{k-2})
+
+        #     n = k + 2
+
+        #     for c in range(3):
+
+        #         for l in range(1, n - 2):
+        #             for j in range(1, n - 1 - l):
+        #                 for i in range(1, n - j - l):
+
+        #                     l1 = i / n
+        #                     l2 = j / n
+        #                     l3 = l / n
+        #                     l0 = 1.0 - l1 - l2 - l3
+
+        #                     pt = weighted_point(
+        #                         (0, 1, 2, 3),
+        #                         (l0, l1, l2, l3),
+        #                     )
+
+        #                     cell_dofs.append(
+        #                         add_dof(
+        #                             pt,
+        #                             unit(c),
+        #                         )
+        #                     )
+
+        # elif cell_type == CellType.HEXAHEDRON:
+
+        #     # Component c:
+        #     #
+        #     #   coordinate c:
+        #     #       i/k
+        #     #
+        #     #   transverse coordinates:
+        #     #       i/(k+1)
+
+        #     for c in range(3):
+
+        #         counts = [k + 1 if d != c else k for d in range(3)]
+
+        #         for l in range(1, counts[2]):
+        #             for j in range(1, counts[1]):
+        #                 for i in range(1, counts[0]):
+
+        #                     pt = hex_point(
+        #                         i / counts[0],
+        #                         j / counts[1],
+        #                         l / counts[2],
+        #                     )
+
+        #                     cell_dofs.append(
+        #                         add_dof(
+        #                             pt,
+        #                             unit(c),
+        #                         )
+        #                     )
+
+        # elif cell_type in (
+        #     CellType.PRISM,
+        #     CellType.PYRAMID,
+        # ):
+
+        #     # Lowest-order implementations contain only facet DOFs.
+        #     pass
+
+        # # ============================================================
+        # # Freeze layout
+        # # ============================================================
+
+        # return cls(
+        #     ref_cell=ref_cell,
+        #     space=space,
+        #     pts=pts,
+        #     dirs=dirs,
+        #     vertex_dofs=tuple(tuple(dofs) for dofs in vertex_dofs),
+        #     edge_dofs=tuple(tuple(dofs) for dofs in edge_dofs),
+        #     face_dofs=tuple(tuple(dofs) for dofs in face_dofs),
+        #     cell_dofs=tuple(cell_dofs),
+        # )

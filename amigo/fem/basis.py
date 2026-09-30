@@ -291,7 +291,7 @@ class RTBasis2D(Basis):
             for name in self.names:
                 comp.add_constraint(f"res_{name}", shape=(2, ndof))
 
-        comp.add_data("signs", shape=(ndof,))
+        comp.add_data("hdiv_signs", shape=(ndof,))
 
     def eval(self, comp, pt):
         xi = pt[0]
@@ -304,7 +304,7 @@ class RTBasis2D(Basis):
         Nxi, Neta = self.vand.eval_basis_grad(xi, eta)
 
         soln = {}
-        d = comp.data["signs"]
+        d = comp.data["hdiv_signs"]
         ndof = self.layout.ndof
         for name in self.names:
             if self.kind == "input":
