@@ -35,11 +35,12 @@ class DofHandler:
         #   (FunctionSpace, domain, CellType) -> ndarray [+/- 1] only
         self._dof_signs = {}
 
-        # Orientation information associated with each element chunk.
-        # These are mesh-topology orientations, not yet basis-specific
-        # transformations.
-        self._edge_orientation = {}
-        self._face_orientation = {}
+        # Mapping between the mesh entities and the dof
+        # (FunctionSpace) -> mapping : dict {entity key -> dof}
+        self._vertex_dof = {}
+        self._edge_dof = {}
+        self._face_dof = {}
+        self._cell_dof = {}
 
         # Build the DOF numbering.
         self._build()
@@ -92,25 +93,6 @@ class DofHandler:
             all_dof.extend(self._dof_conn[(space, domain, cell_type)])
 
         return np.array(all_dof, dtype=np.int64)
-
-    def get_edge_orientation(
-        self, func_space: FunctionSpace, domain: str, cell_type: CellType
-    ):
-        """
-        Return the edge orientation information for this element chunk.
-
-        For spaces that do not use edge DOFs, this may still be present
-        because it comes directly from the mesh topology.
-        """
-        return self._edge_orientation.get((func_space, domain, cell_type), None)
-
-    def get_face_orientation(
-        self, func_space: FunctionSpace, domain: str, cell_type: CellType
-    ):
-        """
-        Return the face orientation information for this element chunk.
-        """
-        return self._face_orientation.get((func_space, domain, cell_type), None)
 
     def _build(self):
         """
@@ -186,7 +168,7 @@ class DofHandler:
                     for vertex_index, local_dof in enumerate(layout.vertex_dofs):
                         entity_id = int(vertex_conn[elem, vertex_index])
 
-                        key = self._make_entity_key(
+                        key = self.make_entity_key(
                             func_space=func_space,
                             domain=domain,
                             entity_id=entity_id,
@@ -211,7 +193,7 @@ class DofHandler:
                                 edge_entity_dof = len(local_dofs) - 1 - entity_dof
                                 edge_sign = -1.0
 
-                            key = self._make_entity_key(
+                            key = self.make_entity_key(
                                 func_space=func_space,
                                 domain=domain,
                                 entity_id=entity_id,
@@ -230,7 +212,7 @@ class DofHandler:
                         entity_id = int(face_conn[elem, local_face])
 
                         for entity_dof, local_dof in enumerate(local_dofs):
-                            key = self._make_entity_key(
+                            key = self.make_entity_key(
                                 func_space=func_space,
                                 domain=domain,
                                 entity_id=entity_id,
@@ -262,16 +244,31 @@ class DofHandler:
                 self._dof_conn[chunk_key] = conn
                 self._dof_signs[chunk_key] = signs
 
-                if edge_orientation is not None:
-                    self._edge_orientation[chunk_key] = edge_orientation
-
-                if face_orientation is not None:
-                    self._face_orientation[chunk_key] = face_orientation
-
         self._num_dof[func_space] = next_dof
+        self._vertex_dof[func_space] = vertex_dof
+        self._edge_dof[func_space] = edge_dof
+        self._face_dof[func_space] = face_dof
+        self._cell_dof[func_space] = cell_dof
+        return
+
+    def get_vertex_dof_mapping(self, space: FunctionSpace):
+        """Get a map for the mesh vertex ordering to the dof ordering"""
+        return self._vertex_dof[space]
+
+    def get_edge_dof_mapping(self, space: FunctionSpace):
+        """Get a map for the mesh edge ordering to the dof ordering"""
+        return self._edge_dof[space]
+
+    def get_face_dof_mapping(self, space: FunctionSpace):
+        """Get a map for the mesh face ordering to the dof ordering"""
+        return self._face_dof[space]
+
+    def get_cell_dof_mapping(self, space: FunctionSpace):
+        """Get a map for the cell face ordering to the dof ordering"""
+        return self._cell_dof[space]
 
     @staticmethod
-    def _make_entity_key(
+    def make_entity_key(
         func_space: FunctionSpace,
         domain: str,
         entity_id: int,
