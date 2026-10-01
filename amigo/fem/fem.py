@@ -409,14 +409,14 @@ class Problem:
         cloud = pv.PolyData(coords)
         cloud["vectors"] = vecs
 
-        arrows = cloud.glyph(orient="vectors", scale="vectors", factor=2.0)
+        arrows = cloud.glyph(orient="vectors", scale="vectors", factor=0.0003)
         pl = pv.Plotter(theme=pv.themes.DarkTheme())
         pl.add_mesh(arrows, cmap="plasma")
         pl.view_xy()
         pl.enable_parallel_projection()
         pl.enable_2d_style()
-        pl.show()
-        return
+        # pl.show()
+        return pl
 
     def _build_vec_grid(self, x, field, domain):
         ctype = CellType.TRIANGLE
