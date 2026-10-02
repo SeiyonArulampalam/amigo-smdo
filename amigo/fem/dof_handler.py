@@ -51,9 +51,7 @@ class DofHandler:
         """
         return self._num_dof[func_space]
 
-    def get_dof_conn(
-        self, space: FunctionSpace, domain: str, cell_type: CellType
-    ) -> np.ndarray:
+    def get_dof_conn(self, space: FunctionSpace, block_id: int) -> np.ndarray:
         """
         Return element-local -> global DOF connectivity.
 
@@ -62,11 +60,9 @@ class DofHandler:
         conn : ndarray
             Shape (num_elements, num_element_dof).
         """
-        return self._dof_conn[(space, domain, cell_type)]
+        return self._dof_conn[(space, block_id)]
 
-    def get_dof_signs(
-        self, space: FunctionSpace, domain: str, cell_type: CellType
-    ) -> np.ndarray:
+    def get_dof_signs(self, space: FunctionSpace, block_id: int) -> np.ndarray:
         """
         Return element-local -> global DOF array of sign transformations.
 
@@ -76,7 +72,7 @@ class DofHandler:
             Shape (num_elements, num_element_dof).
         """
         if space.func_space == Space.HDIV or space.func_space == Space.HCURL:
-            return self._dof_signs[(space, domain, cell_type)]
+            return self._dof_signs[(space, block_id)]
         else:
             raise NotImplementedError
 
@@ -87,10 +83,11 @@ class DofHandler:
 
         # Get the function space associated with the variable name
         space = self.solution_space.get_space(name)
+        block_ids = self.mesh.get_block_ids(domain)
 
         all_dof = []
-        for cell_type in self.mesh.get_cell_types(domain):
-            all_dof.extend(self._dof_conn[(space, domain, cell_type)])
+        for block_id in block_ids:
+            all_dof.extend(self._dof_conn[(space, block_id)])
 
         return np.array(all_dof, dtype=np.int64)
 
@@ -119,130 +116,123 @@ class DofHandler:
 
         # Build the layouts
         elem_layouts = {}
-        for domain in self.mesh.get_domains():
-            for cell_type in self.mesh.get_cell_types(domain):
-                if not (func_space, cell_type) in elem_layouts:
-                    elem_layouts[(func_space, cell_type)] = DofLayout.make_layout(
-                        func_space, cell_type
-                    )
+        for cell_type in self.mesh.get_cell_types():
+            elem_layouts[cell_type] = DofLayout.make_layout(func_space, cell_type)
 
         # For each cell type in each domain
-        for domain in self.mesh.get_domains():
-            for cell_type in self.mesh.get_cell_types(domain):
-                layout = elem_layouts[(func_space, cell_type)]
+        for block_id in range(self.mesh.get_num_blocks()):
+            # Extract the domain name
+            nelem = self.mesh.get_num_elements(block_id)
+            domain = self.mesh.get_domain_name(block_id)
+            cell_type = self.mesh.get_cell_type(block_id)
+            layout = elem_layouts[cell_type]
 
-                # Get the vertex connectivity
-                vertex_conn = self.mesh.get_vertex_conn(domain, cell_type)
-                nelem = vertex_conn.shape[0]
+            # Get the vertex connectivity
+            vertex_conn = self.mesh.get_vertex_conn(block_id)
 
-                # Edge/face topology may not exist for every reference cell.
-                edge_conn = None
-                edge_orientation = None
+            # Edge/face topology may not exist for every reference cell.
+            edge_conn = None
+            edge_orientation = None
+            if len(layout.edge_dofs) > 0:
+                edge_conn, edge_orientation = self.mesh.get_edge_conn(block_id)
 
-                if len(layout.edge_dofs) > 0:
-                    edge_conn, edge_orientation = self.mesh.get_edge_conn(
-                        domain, cell_type
+            face_conn = None
+            face_orientation = None
+            if len(layout.face_dofs) > 0:
+                face_conn, face_orientation = self.mesh.get_face_conn(block_id)
+
+            # Create the connectivity
+            conn = np.empty((nelem, layout.ndof), dtype=np.int64)
+
+            # Create the signs array
+            signs = None
+            if (
+                func_space.func_space == Space.HDIV
+                or func_space.func_space == Space.HCURL
+            ):
+                signs = np.ones((nelem, layout.ndof), dtype=float)
+
+            for elem in range(nelem):
+                # Vertex DOFs
+                for vertex_index, local_dof in enumerate(layout.vertex_dofs):
+                    entity_id = int(vertex_conn[elem, vertex_index])
+
+                    key = self.make_entity_key(
+                        func_space=func_space,
+                        domain=domain,
+                        entity_id=entity_id,
+                        entity_dof=0,
                     )
 
-                face_conn = None
-                face_orientation = None
+                    if key not in vertex_dof:
+                        vertex_dof[key] = next_dof
+                        next_dof += 1
 
-                if len(layout.face_dofs) > 0:
-                    face_conn, face_orientation = self.mesh.get_face_conn(
-                        domain, cell_type
-                    )
+                    conn[elem, vertex_index] = vertex_dof[key]
 
-                # Create the connectivity
-                conn = np.empty((nelem, layout.ndof), dtype=np.int64)
+                # Edge DOFs
+                for edge_index, local_dofs in enumerate(layout.edge_dofs):
+                    entity_id = int(edge_conn[elem, edge_index])
 
-                # Create the signs array
-                signs = None
-                if (
-                    func_space.func_space == Space.HDIV
-                    or func_space.func_space == Space.HCURL
-                ):
-                    signs = np.ones((nelem, layout.ndof), dtype=float)
-
-                for elem in range(nelem):
-                    # Vertex DOFs
-                    for vertex_index, local_dof in enumerate(layout.vertex_dofs):
-                        entity_id = int(vertex_conn[elem, vertex_index])
+                    for entity_dof, local_dof in enumerate(local_dofs):
+                        # Flip the edge orientation
+                        edge_entity_dof = entity_dof
+                        edge_sign = 1.0
+                        if edge_orientation[elem, edge_index] < 0:
+                            edge_entity_dof = len(local_dofs) - 1 - entity_dof
+                            edge_sign = -1.0
 
                         key = self.make_entity_key(
                             func_space=func_space,
                             domain=domain,
                             entity_id=entity_id,
-                            entity_dof=0,
+                            entity_dof=edge_entity_dof,
                         )
 
-                        if key not in vertex_dof:
-                            vertex_dof[key] = next_dof
+                        if key not in edge_dof:
+                            edge_dof[key] = next_dof
                             next_dof += 1
 
-                        conn[elem, vertex_index] = vertex_dof[key]
-
-                    # Edge DOFs
-                    for edge_index, local_dofs in enumerate(layout.edge_dofs):
-                        entity_id = int(edge_conn[elem, edge_index])
-
-                        for entity_dof, local_dof in enumerate(local_dofs):
-                            # Flip the edge orientation
-                            edge_entity_dof = entity_dof
-                            edge_sign = 1.0
-                            if edge_orientation[elem, edge_index] < 0:
-                                edge_entity_dof = len(local_dofs) - 1 - entity_dof
-                                edge_sign = -1.0
-
-                            key = self.make_entity_key(
-                                func_space=func_space,
-                                domain=domain,
-                                entity_id=entity_id,
-                                entity_dof=edge_entity_dof,
-                            )
-
-                            if key not in edge_dof:
-                                edge_dof[key] = next_dof
-                                next_dof += 1
-
-                            conn[elem, local_dof] = edge_dof[key]
+                        conn[elem, local_dof] = edge_dof[key]
+                        if signs is not None:
                             signs[elem, local_dof] = edge_sign
 
-                    # Face DOFs
-                    for local_face, local_dofs in enumerate(layout.face_dofs):
-                        entity_id = int(face_conn[elem, local_face])
+                # Face DOFs
+                for local_face, local_dofs in enumerate(layout.face_dofs):
+                    entity_id = int(face_conn[elem, local_face])
 
-                        for entity_dof, local_dof in enumerate(local_dofs):
-                            key = self.make_entity_key(
-                                func_space=func_space,
-                                domain=domain,
-                                entity_id=entity_id,
-                                entity_dof=entity_dof,
-                            )
+                    for entity_dof, local_dof in enumerate(local_dofs):
+                        key = self.make_entity_key(
+                            func_space=func_space,
+                            domain=domain,
+                            entity_id=entity_id,
+                            entity_dof=entity_dof,
+                        )
 
-                            if key not in face_dof:
-                                face_dof[key] = next_dof
-                                next_dof += 1
-
-                            conn[elem, local_dof] = face_dof[key]
-
-                    # Cell-interior DOFs
-                    for entity_dof, local_dof in enumerate(layout.cell_dofs):
-                        # Interior DOFs belong to the element itself.
-                        #
-                        # The domain/cell_type/elem tuple uniquely
-                        # identifies the element within the mesh chunk.
-                        key = (domain, cell_type, elem, entity_dof)
-
-                        if key not in cell_dof:
-                            cell_dof[key] = next_dof
+                        if key not in face_dof:
+                            face_dof[key] = next_dof
                             next_dof += 1
 
-                        conn[elem, local_dof] = cell_dof[key]
+                        conn[elem, local_dof] = face_dof[key]
 
-                # Store element connectivity.
-                chunk_key = (func_space, domain, cell_type)
-                self._dof_conn[chunk_key] = conn
-                self._dof_signs[chunk_key] = signs
+                # Cell-interior DOFs
+                for entity_dof, local_dof in enumerate(layout.cell_dofs):
+                    # Interior DOFs belong to the element itself.
+                    #
+                    # The domain/cell_type/elem tuple uniquely
+                    # identifies the element within the mesh chunk.
+                    key = (domain, cell_type, elem, entity_dof)
+
+                    if key not in cell_dof:
+                        cell_dof[key] = next_dof
+                        next_dof += 1
+
+                    conn[elem, local_dof] = cell_dof[key]
+
+            # Store element connectivity.
+            chunk_key = (func_space, block_id)
+            self._dof_conn[chunk_key] = conn
+            self._dof_signs[chunk_key] = signs
 
         self._num_dof[func_space] = next_dof
         self._vertex_dof[func_space] = vertex_dof
@@ -389,9 +379,9 @@ class DegreesOfFreedom:
 
         return
 
-    def link_dof(
-        self, model: am.Model, domain: str, cell_type: CellType, elem_name: str
-    ):
+    def link_dof(self, model: am.Model, block_id: int, elem_name: str):
+        domain = self.mesh.get_domain_name(block_id)
+
         for space in self.solution_space.get_spaces():
             names = self.solution_space.get_names(space)
             if len(names) == 0:
@@ -410,7 +400,7 @@ class DegreesOfFreedom:
                     names = con_names
 
                 # Get the connectivity for the function space
-                conn = self.dof_handler.get_dof_conn(space, domain, cell_type)
+                conn = self.dof_handler.get_dof_conn(space, block_id)
 
                 # Link the degrees of freedom
                 if space.func_space == Space.HDIV:
@@ -458,28 +448,27 @@ class DegreesOfFreedom:
 
         # Build the layouts
         elem_layouts = {}
-        for domain in self.mesh.get_domains():
-            for cell_type in self.mesh.get_cell_types(domain):
-                if not (space, cell_type) in elem_layouts:
-                    elem_layouts[(space, cell_type)] = DofLayout.make_layout(
-                        space, cell_type
-                    )
+        for cell_type in self.mesh.get_cell_types():
+            elem_layouts[cell_type] = DofLayout.make_layout(space, cell_type)
 
-        for domain in self.mesh.get_domains():
-            for cell_type in self.mesh.get_cell_types(domain):
-                # DOF connectivity (global DOF numbers) for this chunk
-                conn = self.dof_handler.get_dof_conn(space, domain, cell_type)
+        # For each cell type in each domain
+        for block_id in range(self.mesh.get_num_blocks()):
+            # Get the cell type
+            cell_type = self.mesh.get_cell_type(block_id)
 
-                # Mesh vertex connectivity (global node numbers)
-                vertex_conn = self.mesh.get_vertex_conn(domain, cell_type)
+            # DOF connectivity (global DOF numbers) for this chunk
+            conn = self.dof_handler.get_dof_conn(space, block_id)
 
-                layout = elem_layouts[(space, cell_type)]
+            # Mesh vertex connectivity (global node numbers)
+            vertex_conn = self.mesh.get_vertex_conn(block_id)
 
-                # The first len(vertex_dofs) local DOFs are the vertex DOFs,
-                # placed at layout.vertex_dofs local positions and aligned with
-                # the mesh vertex ordering.
-                for local_vertex, local_dof in enumerate(layout.vertex_dofs):
-                    dof_to_node[conn[:, local_dof]] = vertex_conn[:, local_vertex]
+            layout = elem_layouts[cell_type]
+
+            # The first len(vertex_dofs) local DOFs are the vertex DOFs,
+            # placed at layout.vertex_dofs local positions and aligned with
+            # the mesh vertex ordering.
+            for local_vertex, local_dof in enumerate(layout.vertex_dofs):
+                dof_to_node[conn[:, local_dof]] = vertex_conn[:, local_vertex]
 
         return dof_to_node
 
@@ -550,32 +539,30 @@ class BoundaryConditions:
         self.integrand_formulation = integrand_formulation
         return
 
-    def _get_target_dof(
-        self,
-        name: str,
-        targets: list[str],
-        start: bool = True,
-        end: bool = True,
-    ):
+    def _get_target_dof(self, name: str, targets: list[str]):
         all_dof = []
         for target in targets:
             dof = self.dof_handler.get_dof_in_domain(name, target)
             all_dof.extend(dof)
 
-        unique = np.unique(all_dof)
+        return np.unique(all_dof)
 
-        # unique = list(dict.fromkeys(all_dof))
+    # def _get_ordered_dof(
+    #     self, name: str, targets: list[str], start: bool = True, end: bool = True
+    # ):
 
-        if not start or not end:
-            raise NotImplementedError
+    #     # unique = list(dict.fromkeys(all_dof))
 
-            # This logic no longer works - need to find a better way
-            # if not start:
-            #     unique = unique[1:]
-            # if not end:
-            #     unique = unique[:-1]
+    #     if not start or not end:
+    #         raise NotImplementedError
 
-        return unique
+    #         # This logic no longer works - need to find a better way
+    #         # if not start:
+    #         #     unique = unique[1:]
+    #         # if not end:
+    #         #     unique = unique[:-1]
+
+    #     return unique
 
     # def _reorder_nodes(self, nodes_left, nodes_right):
     #     nodes_left = np.array(nodes_left)
@@ -592,8 +579,8 @@ class BoundaryConditions:
     # def _get_matched_nodes(self, targets, start=True, end=True):
     #     left_target_lines = targets[0]
     #     right_target_lines = targets[1]
-    #     nodes_left = self._get_bc_nodes(left_target_lines, start, end)
-    #     nodes_right = self._get_bc_nodes(right_target_lines, start, end)
+    #     nodes_left = self._get_ordered_dof(left_target_lines, start, end)
+    #     nodes_right = self._get_ordered_dof(right_target_lines, start, end)
 
     #     if len(nodes_left) != len(nodes_right):
     #         raise Exception(f"nnodes left != nnodes right")
@@ -615,45 +602,41 @@ class BoundaryConditions:
                     model.add_fixed(f"multiplier.res_{name}", dof)
 
         else:
-            raise NotImplementedError
-            # targets = self.bc["target"]
             # start = self.bc.get("start", True)
             # end = self.bc.get("end", True)
 
+            left_dof = self.bc.get("left_dof")
+            right_dof = self.bc.get("right_dof")
             # nodes_left, nodes_right = self._get_matched_nodes(
             #     targets, start=start, end=end
             # )
 
-            # input_names = self.bc["input"]
-            # if self.bc["type"] == "continuity":
-            #     for name in input_names:
-            #         model.link(
-            #             f"soln.{name}",
-            #             f"soln.{name}",
-            #             src_indices=nodes_left,
-            #             tgt_indices=nodes_right,
-            #         )
+            input_names = self.bc["input"]
+            if self.bc["type"] == "continuity":
+                for name in input_names:
+                    model.link(
+                        f"soln.{name}",
+                        f"soln.{name}",
+                        src_indices=left_dof,
+                        tgt_indices=right_dof,
+                    )
 
-            # elif self.bc["type"] == "scaled":
-            #     scale = self.bc["scale"]
-            #     class_name = f"ScaledBC_{self.bc_name}"
-            #     bc_src = ScaledBC(class_name, input_names, scale=scale)
+            elif self.bc["type"] == "scaled":
+                scale = self.bc["scale"]
+                class_name = f"ScaledBC_{self.bc_name}"
+                bc_src = ScaledBC(class_name, input_names, scale=scale)
 
-            #     if len(nodes_left) > 0:
-            #         model.add_component(
-            #             f"{self.bc_name}",
-            #             len(nodes_left),
-            #             bc_src,
-            #         )
+                if len(left_dof) > 0:
+                    model.add_component(f"{self.bc_name}", len(left_dof), bc_src)
 
-            #         for name in input_names:
-            #             model.link(
-            #                 f"soln.{name}",
-            #                 f"{self.bc_name}.{name}_left",
-            #                 src_indices=nodes_left,
-            #             )
-            #             model.link(
-            #                 f"soln.{name}",
-            #                 f"{self.bc_name}.{name}_right",
-            #                 src_indices=nodes_right,
-            #             )
+                    for name in input_names:
+                        model.link(
+                            f"soln.{name}",
+                            f"{self.bc_name}.{name}_left",
+                            src_indices=left_dof,
+                        )
+                        model.link(
+                            f"soln.{name}",
+                            f"{self.bc_name}.{name}_right",
+                            src_indices=right_dof,
+                        )

@@ -92,8 +92,6 @@ class Problem:
         return
 
     def _create_element_objs(self):
-        # Get the domain names from the mesh
-        domains = self.mesh.get_domains()
 
         for integrand_name in self.integrand_map:
             targets = self.integrand_map[integrand_name]["target"]
@@ -101,11 +99,7 @@ class Problem:
             integration_rule = self.integrand_map[integrand_name].get("rule", None)
 
             # Figure out the cell types that we need
-            ctypes = []
-            for target in targets:
-                for ctype in domains[target]:
-                    if not ctype in ctypes:
-                        ctypes.append(ctype)
+            ctypes = self.mesh.get_cell_types(targets)
 
             # Loop over the element types for this integrand
             for ctype in ctypes:
@@ -150,21 +144,14 @@ class Problem:
         return
 
     def _create_output_objs(self):
-        # Get the domain names from the mesh
-        domains = self.mesh.get_domains()
-
         # Create the output objects
         for out_name in self.output_map:
             targets = self.output_map[out_name]["target"]
             output_names = self.output_map[out_name]["names"]
             output_func = self.output_map[out_name]["function"]
 
-            # Figure out the element types we need
-            ctypes = []
-            for target in targets:
-                for ctype in domains[target]:
-                    if not ctype in ctypes:
-                        ctypes.append(ctype)
+            # Figure out the cell types that we need
+            ctypes = self.mesh.get_cell_types(targets)
 
             # Loop over the element types for generating the output function
             for ctype in ctypes:
@@ -207,9 +194,6 @@ class Problem:
         self.data_dof.add_source(model)
         self.geo_dof.add_source(model)
 
-        # Get the domain names from the mesh
-        domains = self.mesh.get_domains()
-
         # Figure out which elements need to be created
         self._create_element_objs()
 
@@ -219,33 +203,35 @@ class Problem:
         # Add the element component objects
         for integrand_name in self.integrand_map:
             targets = self.integrand_map[integrand_name]["target"]
+            block_ids = self.mesh.get_block_ids(targets)
 
-            for target in targets:
-                for ctype in domains[target]:
-                    elem = self.element_objs[(integrand_name, ctype)]
-                    comp_name = f"Element{integrand_name}{ctype.name}{target}"
+            for block_id in block_ids:
+                ctype = self.mesh.get_cell_type(block_id)
 
-                    # Add the element/component
-                    nelems = self.mesh.get_num_elements(target, ctype)
-                    model.add_component(comp_name, nelems, elem)
+                elem = self.element_objs[(integrand_name, ctype)]
+                comp_name = f"Element{integrand_name}{ctype.name}{block_id}"
 
-                    # Link all the element dof to the component
-                    self.soln_dof.link_dof(model, target, ctype, comp_name)
-                    self.data_dof.link_dof(model, target, ctype, comp_name)
-                    self.geo_dof.link_dof(model, target, ctype, comp_name)
+                # Add the element/component
+                nelems = self.mesh.get_num_elements(block_id)
+                model.add_component(comp_name, nelems, elem)
 
-                    # Link the constraints (if using the weak formulation)
-                    if self.test_dof is not None:
-                        self.test_dof.link_dof(model, target, ctype, comp_name)
+                # Link all the element dof to the component
+                self.soln_dof.link_dof(model, block_id, comp_name)
+                self.data_dof.link_dof(model, block_id, comp_name)
+                self.geo_dof.link_dof(model, block_id, comp_name)
 
-                    # Set the element signs if relevant
-                    for space in self.soln_space.get_spaces():
-                        if space.func_space == Space.HDIV:
-                            signs = dof_handler.get_dof_signs(space, target, ctype)
-                            model.set_data(f"{comp_name}.hdiv_signs", signs)
-                        elif space.func_space == Space.HCURL:
-                            signs = dof_handler.get_dof_signs(space, target, ctype)
-                            model.set_data(f"{comp_name}.hcurl_signs", signs)
+                # Link the constraints (if using the weak formulation)
+                if self.test_dof is not None:
+                    self.test_dof.link_dof(model, block_id, comp_name)
+
+                # Set the element signs if relevant
+                for space in self.soln_space.get_spaces():
+                    if space.func_space == Space.HDIV:
+                        signs = dof_handler.get_dof_signs(space, block_id)
+                        model.set_data(f"{comp_name}.hdiv_signs", signs)
+                    elif space.func_space == Space.HCURL:
+                        signs = dof_handler.get_dof_signs(space, block_id)
+                        model.set_data(f"{comp_name}.hcurl_signs", signs)
 
         # Add BC components and links
         for bc in self.boundary_conditions:
@@ -266,24 +252,25 @@ class Problem:
         for out_name in self.output_map:
             targets = self.output_map[out_name]["target"]
             output_names = self.output_map[out_name]["names"]
+            block_ids = self.mesh.get_block_ids(targets)
 
-            for target in targets:
-                for etype in domains[target]:
-                    obj = self.output_objs[(out_name, etype)]
-                    comp_name = f"ElementOutput{out_name}{etype}{target}"
+            for block_id in block_ids:
+                ctype = self.mesh.get_cell_type(block_id)
+                obj = self.output_objs[(out_name, ctype)]
+                comp_name = f"ElementOutput{out_name}{ctype.name}{block_id}"
 
-                    # Add the element/component
-                    nelems = self.mesh.get_num_elements(target, etype)
-                    model.add_component(comp_name, nelems, obj)
+                # Add the element/component
+                nelems = self.mesh.get_num_elements(block_id)
+                model.add_component(comp_name, nelems, obj)
 
-                    # Link all the element dof to the component
-                    self.soln_dof.link_dof(model, target, etype, comp_name)
-                    self.data_dof.link_dof(model, target, etype, comp_name)
-                    self.geo_dof.link_dof(model, target, etype, comp_name)
+                # Link all the element dof to the component
+                self.soln_dof.link_dof(model, block_id, comp_name)
+                self.data_dof.link_dof(model, block_id, comp_name)
+                self.geo_dof.link_dof(model, block_id, comp_name)
 
-                    # Link the outputs
-                    for name in output_names:
-                        model.link(f"{comp_name}.{name}", f"outputs.{name}[0]")
+                # Link the outputs
+                for name in output_names:
+                    model.link(f"{comp_name}.{name}", f"outputs.{name}[0]")
 
         # Set the node locations directly
         spatial_names = ["x", "y", "z"][: self.mesh.X.shape[1]]
@@ -350,7 +337,7 @@ class Problem:
         return grid
 
     def save_vtu(self, x, field, domain):
-        grid = self._build_visualization_grid(x, field=field, domain=domain)
+        grid = self._build_visualization_grid(x, field=field, domain=domain)[0]
         grid.save("output_field.vtu")
         return
 
@@ -379,30 +366,36 @@ class Problem:
                 f"ndof/elem={ndof_local})."
             )
 
-        # Global DOF connectivity for the solution space: (nelem, ndof_local),
-        soln_conn = dof_handler.get_dof_conn(soln_space, domain, ctype)
+        block_ids = self.mesh.get_block_ids(domain)
 
-        # P1 vertex connectivity and coordinates for the geometry.
-        vertex_conn = self.mesh.get_vertex_conn(domain, ctype)  # (nelem, 3)
-        Xv = np.asarray(self.mesh.X)  # (nnodes, dim)
-        dim = Xv.shape[1]
+        grids = []
+        for block_id in block_ids:
+            # Global DOF connectivity for the solution space: (nelem, ndof_local),
+            soln_conn = dof_handler.get_dof_conn(soln_space, block_id)
 
-        # Reference elment node layout
-        param = np.asarray(layout.pts)  # (ndof_local, 2), (xi, eta)
-        xi, eta = param[:, 0], param[:, 1]
-        N = np.stack([1.0 - xi - eta, xi, eta], axis=1)  # (ndof_local, 3)
+            # P1 vertex connectivity and coordinates for the geometry.
+            vertex_conn = self.mesh.get_vertex_conn(block_id)
+            Xv = np.asarray(self.mesh.X)  # (nnodes, dim)
+            dim = Xv.shape[1]
 
-        ndof_global = dof_handler.get_num_dof(soln_space)
-        points = np.zeros((ndof_global, 3))
-        for e in range(soln_conn.shape[0]):
-            vcoords = Xv[vertex_conn[e]]  # (3, dim)
-            phys = N @ vcoords  # (ndof_local, dim)
-            for a in range(ndof_local):
-                points[soln_conn[e, a], :dim] = phys[a]
+            # Reference elment node layout
+            param = np.asarray(layout.pts)  # (ndof_local, 2), (xi, eta)
+            xi, eta = param[:, 0], param[:, 1]
+            N = np.stack([1.0 - xi - eta, xi, eta], axis=1)  # (ndof_local, 3)
 
-        grid = pv.UnstructuredGrid({pv_cell_type: soln_conn}, points)
-        grid.point_data[field] = np.asarray(x[field])
-        return grid
+            ndof_global = dof_handler.get_num_dof(soln_space)
+            points = np.zeros((ndof_global, 3))
+            for e in range(soln_conn.shape[0]):
+                vcoords = Xv[vertex_conn[e]]  # (3, dim)
+                phys = N @ vcoords  # (ndof_local, dim)
+                for a in range(ndof_local):
+                    points[soln_conn[e, a], :dim] = phys[a]
+
+            grid = pv.UnstructuredGrid({pv_cell_type: soln_conn}, points)
+            grid.point_data[field] = np.asarray(x[field])
+            grids.append(grid)
+
+        return grids
 
     def visualize_vec_field(self, x, field, domain):
         coords, vecs = self._build_vec_grid(x, field, domain)

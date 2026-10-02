@@ -28,7 +28,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-H1 = FunctionSpace(func_space=Space.H1, degree=2)
+H1 = FunctionSpace(func_space=Space.H1, degree=1)
 soln_space = SolutionSpace({"u": H1})
 geo_space = SolutionSpace({"x": "H1", "y": "H1"})
 data_space = SolutionSpace({})
