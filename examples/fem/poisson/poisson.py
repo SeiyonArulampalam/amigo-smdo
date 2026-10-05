@@ -4,6 +4,7 @@ import numpy as np
 from amigo.fem import SolutionSpace, Mesh, Problem, FunctionSpace, Space
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
+from amigo.fem.visualization import build_pv_grid
 
 
 def integrand(test, soln, data=None, geo=None):
@@ -28,7 +29,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-soln_space = SolutionSpace({"u": "H1"}, degree=2)
+soln_space = SolutionSpace({"u": "H1"}, degree=1)
 geo_space = SolutionSpace({"x": "H1", "y": "H1"}, degree=1)
 data_space = SolutionSpace({})
 
@@ -47,7 +48,8 @@ bc_map = {
 }
 
 # Load the plate
-mesh = Mesh("plate.inp")
+# mesh = Mesh("plate.inp")
+mesh = Mesh("rect_plate.inp")
 
 problem = Problem(
     mesh,
@@ -94,3 +96,6 @@ u_exact = np.sin(np.pi * (xpts + 0.5)) * np.sin(np.pi * (ypts + 0.5))
 # mesh.plot(u_exact, ax=ax[1])
 # plt.show()
 # problem.visualize(x, "soln.u", "SURFACE1")
+
+grid = build_pv_grid(problem, "u", x, "SURFACE1", "soln")
+grid.plot(scalars="u", cmap="coolwarm", show_edges=True)

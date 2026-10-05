@@ -1,309 +1,177 @@
-from .fem import Problem
-from .cell_types import CellType, DofLayout
-from .dof_handler import DofHandler
-from .fem_space import FunctionSpace
-from .fem import Problem
-from dataclasses import dataclass
 import numpy as np
 import pyvista as pv
 
-# VTK_CELL_TYPES = {
-#     CellType.SEGMENT: pv.CellType.LINE,
-#     CellType.TRIANGLE: pv.CellType.TRIANGLE,
-#     CellType.QUADRILATERAL: pv.CellType.QUAD,
-#     CellType.TETRAHEDRON: pv.CellType.TETRA,
-#     CellType.HEXAHEDRON: pv.CellType.HEXAHEDRON,
-#     CellType.PRISM: pv.CellType.WEDGE,
-#     CellType.PYRAMID: pv.CellType.PYRAMID,
-# }
+from .fem import Problem
+from .cell_types import CellType, DofLayout, REFERENCE_CELLS
+
+# Map an Amigo CellType plus the number of local solution DOFs to the matching
+# PyVista / VTK cell type. The local DOF count distinguishes the polynomial
+# degree (e.g. a 3-node vs 6-node triangle).
+#
+#   (cell_type, ndof_local) -> pv.CellType
+_PV_CELL_TYPES = {
+    (CellType.SEGMENT, 2): pv.CellType.LINE,
+    (CellType.SEGMENT, 3): pv.CellType.QUADRATIC_EDGE,
+    (CellType.TRIANGLE, 3): pv.CellType.TRIANGLE,
+    (CellType.TRIANGLE, 6): pv.CellType.QUADRATIC_TRIANGLE,
+    (CellType.QUADRILATERAL, 4): pv.CellType.QUAD,
+    (CellType.QUADRILATERAL, 9): pv.CellType.QUADRATIC_QUAD,
+}
 
 
-# class VisualizationAdapter:
-#     def __init__(self, problem: Problem):
-#         self.proble = problem
-
-#     def create_mesh(self) -> VisualizationMesh:
-#         pass
-
-#     def add_field(
-#         self,
-#         name: str,
-#         dofs: DegreesOfFreedom,
-#         values: np.ndarray,
-#     ):
-#         pass
-
-#     def add_expression(
-#         self,
-#         name: str,
-#         expression,
-#     ):
-#         pass
-
-#     def to_pyvista(self):
-#         pass
-
-#     def write(self, filename):
-#         pass
+def _pv_cell_type(cell_type: CellType, ndof_local: int) -> "pv.CellType":
+    """Map an Amigo ``CellType`` and local DOF count to a PyVista cell type."""
+    key = (cell_type, ndof_local)
+    if key not in _PV_CELL_TYPES:
+        raise NotImplementedError(
+            "No PyVista cell type is registered for "
+            f"{cell_type.name} with {ndof_local} local DOFs."
+        )
+    return _PV_CELL_TYPES[key]
 
 
-# # DOF Handler
+def _p1_shape_functions(cell_type: CellType, pts: np.ndarray) -> np.ndarray:
+    """Evaluate the degree-1 (vertex) H1 shape functions of ``cell_type``.
 
+    Parameters
+    ----------
+    cell_type : CellType
+        The reference cell the solution DOF points live on.
+    pts : ndarray, shape (npts, dim)
+        Reference-cell coordinates (e.g. the solution DOF locations).
 
-@dataclass
-class VizMeshBlock:
-    cell_type: pv.CellType
-    coords: np.ndarray
-    x: np.ndarray
-    conn: np.ndarray
+    Returns
+    -------
+    N : ndarray, shape (npts, nvert)
+        Linear shape-function values, one column per reference-cell vertex.
+    """
+    pts = np.atleast_2d(np.asarray(pts, dtype=float))
 
+    if cell_type == CellType.TRIANGLE:
+        xi, eta = pts[:, 0], pts[:, 1]
+        return np.stack([1.0 - xi - eta, xi, eta], axis=1)
 
-def _project_block(
-    xcoord: np.ndarray,
-    x: np.ndarray,
-    geo_layout: DofLayout,
-    soln_layout: DofLayout,
-    geo_conn: np.ndarray,
-    soln_conn: np.ndarray,
-    soln_signs: np.ndarray | None = None,
-):
-
-    return VizMeshBlock(cell_type=geo_layout.cell_type, coords=coords, x=xmapped)
-
-
-def _project_to_visual_mesh(
-    block_ids: list[int],
-    cell_types: list[CellType],
-    geo_handler: DofHandler,
-    geo_space: FunctionSpace,
-    soln_handler: DofHandler,
-    soln_space: FunctionSpace,
-    xcoord: np.ndarray,
-    x: np.ndarray,
-):
-    # Project problem onto a visualization mesh
-    blocks = []
-
-    for block_id, cell_type in zip(block_ids, cell_types):
-        # Get the connectivity and signs for the block
-        geo_conn = geo_handler.get_dof_conn(geo_space, block_id)
-        soln_conn = soln_handler.get_dof_conn(soln_space, block_id)
-        soln_signs = soln_handler.get_dof_signs(soln_space, block_id)
-
-        # Get the layout
-        geo_layout = DofLayout.make_layout(geo_space, cell_type)
-        soln_layout = DofLayout.make_layout(soln_space, cell_type)
-
-        block = _project_block(
-            xcoord, x, geo_layout, soln_layout, geo_conn, soln_conn, soln_signs
+    if cell_type == CellType.QUADRILATERAL:
+        xi, eta = pts[:, 0], pts[:, 1]
+        return 0.25 * np.stack(
+            [
+                (1.0 - xi) * (1.0 - eta),
+                (1.0 + xi) * (1.0 - eta),
+                (1.0 + xi) * (1.0 + eta),
+                (1.0 - xi) * (1.0 + eta),
+            ],
+            axis=1,
         )
 
-        blocks.append(block)
+    if cell_type == CellType.SEGMENT:
+        # Vertices at -1, 1; linear basis.
+        xi = pts[:, 0]
+        return 0.5 * np.stack([1.0 - xi, 1.0 + xi], axis=1)
 
-    return blocks
+    raise NotImplementedError(
+        f"Degree-1 geometry shape functions are not implemented for {cell_type.name}."
+    )
 
 
 def build_pv_grid(
-    problem: Problem, name: str, x: Vector, domains: str | list[str] | None = None
-):
+    problem: Problem,
+    name: str,
+    x,
+    domains: str | list[str],
+    dof_prefix: str = "soln",
+) -> "pv.UnstructuredGrid":
+    """Build a ``pyvista.UnstructuredGrid`` for a solution field.
+
+    Parameters
+    ----------
+    problem : Problem
+        The Amigo FEM problem that defines the mesh, geometry space and
+        solution space.
+    name : str
+        Name of the scalar solution field to visualize (e.g. ``"u"``).
+    x : Vector
+        The Amigo solution vector. The field values are read from
+        ``x[f"{dof_prefix}.{name}"]`` using the solution DOF numbering.
+    domains : str or list[str]
+        The domain name(s) whose blocks are included in the grid
+        (e.g. ``"SURFACE1"``).
+    dof_prefix : str, optional
+        The DOF source name used when the model was created
+        (``DegreesOfFreedom(..., name="soln")``). Defaults to ``"soln"``.
+
+    Returns
+    -------
+    grid : pyvista.UnstructuredGrid
+        Grid whose points are the solution DOF locations and whose
+        ``point_data[name]`` holds the solution field.
+    """
+    # Geometry: degree-1 H1 space + its DOF handler (used for nodal coords).
+    geo_space = problem.geo_space.get_spaces()[0]
+    geo_handler = problem.geo_dof.get_dof_handler()
+
+    # Solution: function space for `name` + its DOF handler.
+    soln_space = problem.soln_space.get_space(name)
+    soln_handler = problem.soln_dof.get_dof_handler()
+
+    # Physical coordinates of the geometry nodes, in geo-DOF order.
+    Xgeo = np.asarray(problem.geo_dof.get_coordinates())
+    dim = Xgeo.shape[1]
+
+    # Global solution field values, indexed by solution DOF number.
+    u = np.asarray(x[f"{dof_prefix}.{name}"]).reshape(-1)
+
+    # Allocate the global point array (one point per solution DOF).
+    n_soln_dof = soln_handler.get_num_dof(soln_space)
+    points = np.zeros((n_soln_dof, 3), dtype=float)
+
+    # PyVista accepts connectivity as {cell_type: (nelem, ndof_local)} arrays,
+    # so we group each block's connectivity by its PyVista cell type. This
+    # avoids the flat VTK "[npts, p0, p1, ...]" packing and the parallel
+    # cell-type array entirely.
+    conn_by_type: dict["pv.CellType", list[np.ndarray]] = {}
 
     block_ids = problem.mesh.get_block_ids(domains)
-    cell_types = problem.mesh.get_cell_types(domains)
 
-    geo_space = problem.geo_space.get_spaces()[0]
-    geo_handler = problem.geo_dofs.get_dof_handler()
+    for block_id in block_ids:
+        cell_type = problem.mesh.get_cell_type(block_id)
 
-    dof_space = problem.soln_space.get_space(name)
-    dof_handler = problem.soln_dofs.get_dof_handler()
+        # Solution connectivity in canonical reference-cell DOF ordering.
+        soln_conn = soln_handler.get_dof_conn(soln_space, block_id)
+        ndof_local = soln_conn.shape[1]
 
-    # Build the visualization mesh based on default values
-    blocks = _project_to_visual_mesh(
-        block_ids, cell_types, geo_handler, geo_space, dof_handler, dof_space, xcoord, x
-    )
+        # Map the cell type + local DOF count to the PyVista cell type.
+        pv_type = _pv_cell_type(cell_type, ndof_local)
 
-    # Convert the blocks to a pyvista grid object
+        # Solution DOF reference points on this cell type.
+        soln_layout = DofLayout.make_layout(soln_space, cell_type)
+        ref_pts = np.asarray(soln_layout.pts, dtype=float)
 
-    grid = pv.UnstructuredGrid(cells, vtk_types, xyz)
-    grid.point_data[name] = xfield
+        # Degree-1 geometry map evaluated at the solution DOF reference points.
+        geo_conn = geo_handler.get_dof_conn(geo_space, block_id)
+        nvert = geo_conn.shape[1]
+        N = _p1_shape_functions(cell_type, ref_pts)  # (ndof_local, nvert)
+        if N.shape[1] != nvert:
+            raise ValueError(
+                f"Vertex count mismatch for {cell_type.name}: geometry "
+                f"connectivity has {nvert} vertices but shape functions "
+                f"produced {N.shape[1]}."
+            )
+
+        # Physical coordinates of every solution DOF, placed by global DOF
+        vcoords = Xgeo[geo_conn]  # (nelem, nvert, dim)
+        phys = N @ vcoords  # (nelem, ndof_local, dim)
+        points[soln_conn, :dim] = phys
+
+        # If the pv_type is not in conn_type, add it to the dict
+        conn_by_type.setdefault(pv_type, []).append(soln_conn)
+
+    if not conn_by_type:
+        raise ValueError(f"No blocks found for domain(s) {domains!r}.")
+
+    cells = {pv_type: np.vstack(conns) for pv_type, conns in conn_by_type.items()}
+
+    # Build the PyVista grid and attach the solution field.
+    grid = pv.UnstructuredGrid(cells, points)
+    grid.point_data[name] = u
 
     return grid
-
-
-def save_vtu(self, x, field, domain):
-    grid = self._build_visualization_grid(x, field=field, domain=domain)[0]
-    grid.save("output_field.vtu")
-    return
-
-
-def _build_visualization_grid(self, x, field, domain):
-    """
-    Build a PyVista grid for an H1 triangle solution field of degree 1 or 2
-    on a mesh whose geometry is only P1.
-    """
-    ctype = CellType.TRIANGLE
-
-    soln_space = self.soln_dof.solution_space.get_spaces()[0]
-    dof_handler = self.soln_dof.get_dof_handler()
-    layout = DofLayout.make_layout(soln_space, ctype)
-    ndof_local = len(layout.pts)
-
-    # Map the number of local DOFs to the matching PyVista cell type.
-    pv_cell_type = {
-        3: pv.CellType.TRIANGLE,  # degree 1
-        6: pv.CellType.QUADRATIC_TRIANGLE,  # degree 2
-    }.get(ndof_local)
-
-    if pv_cell_type is None:
-        raise NotImplementedError(
-            "build_visualization_grid supports degree-1 and degree-2 H1 "
-            f"triangles (got degree={soln_space.degree}, "
-            f"ndof/elem={ndof_local})."
-        )
-
-    block_ids = self.mesh.get_block_ids(domain)
-
-    grids = []
-    for block_id in block_ids:
-        # Global DOF connectivity for the solution space: (nelem, ndof_local),
-        soln_conn = dof_handler.get_dof_conn(soln_space, block_id)
-
-        # P1 vertex connectivity and coordinates for the geometry.
-        vertex_conn = self.mesh.get_vertex_conn(block_id)
-        Xv = np.asarray(self.mesh.X)  # (nnodes, dim)
-        dim = Xv.shape[1]
-
-        # Reference elment node layout
-        param = np.asarray(layout.pts)  # (ndof_local, 2), (xi, eta)
-        xi, eta = param[:, 0], param[:, 1]
-        N = np.stack([1.0 - xi - eta, xi, eta], axis=1)  # (ndof_local, 3)
-
-        ndof_global = dof_handler.get_num_dof(soln_space)
-        points = np.zeros((ndof_global, 3))
-        for e in range(soln_conn.shape[0]):
-            vcoords = Xv[vertex_conn[e]]  # (3, dim)
-            phys = N @ vcoords  # (ndof_local, dim)
-            for a in range(ndof_local):
-                points[soln_conn[e, a], :dim] = phys[a]
-
-        grid = pv.UnstructuredGrid({pv_cell_type: soln_conn}, points)
-        grid.point_data[field] = np.asarray(x[field])
-        grids.append(grid)
-
-    return grids
-
-
-def visualize_vec_field(self, x, field, domain):
-    coords, vecs = self._build_vec_grid(x, field, domain)
-    cloud = pv.PolyData(coords)
-    cloud["vectors"] = vecs
-
-    arrows = cloud.glyph(orient="vectors", scale="vectors", factor=0.0003)
-    pl = pv.Plotter(theme=pv.themes.DarkTheme())
-    pl.add_mesh(arrows, cmap="plasma")
-    pl.view_xy()
-    pl.enable_parallel_projection()
-    pl.enable_2d_style()
-    # pl.show()
-    return pl
-
-
-def _build_vec_grid(self, x, field, domain):
-    ctype = CellType.TRIANGLE
-    soln_space = self.soln_dof.solution_space.get_spaces()[0]
-    dof_handler = self.soln_dof.get_dof_handler()
-    layout = DofLayout.make_layout(soln_space, ctype)
-    ndof_local = len(layout.pts)
-
-    # Map the number of local DOFs to the matching PyVista cell type.
-    pv_cell_type = {
-        3: pv.CellType.TRIANGLE,  # degree 1
-        6: pv.CellType.QUADRATIC_TRIANGLE,  # degree 2
-    }.get(ndof_local)
-
-    if pv_cell_type is None:
-        raise NotImplementedError(
-            "build_visualization_grid supports degree-1 and degree-2 H1 "
-            f"triangles (got degree={soln_space.degree}, "
-            f"ndof/elem={ndof_local})."
-        )
-
-    # Global DOF connectivity for the solution space: (nelem, ndof_local),
-    soln_conn = dof_handler.get_dof_conn(soln_space, domain, ctype)
-
-    # DOF signs for the H(div) space: (nelem, ndof_local)
-    signs = dof_handler.get_dof_signs(soln_space, domain, ctype)
-
-    # Global solution flux values indexed by global DOF number
-    u = np.asarray(x[field])
-
-    # P1 vertex connectivity and coordinates for the geometry
-    vertex_conn = self.mesh.get_vertex_conn(domain, ctype)  # (nelem, 3)
-    Xv = np.asarray(self.mesh.X)  # (nnodes, dim)
-    dim = Xv.shape[1]
-
-    # Vector Vandermonde for the RT triangle basis
-    vand = TriangleRTBasis([field], soln_space, kind="input").vand
-
-    # Use vec vandermonde at the center of the triangle (1/3, 1/3)
-    xi, eta = 1.0 / 3.0, 1.0 / 3.0
-
-    # Compute the basis functions at the center: shape (2, ndof_local)
-    N = vand.eval_basis(xi, eta)
-
-    nelem = soln_conn.shape[0]
-    centers = np.zeros((nelem, 3))
-    vectors = np.zeros((nelem, 3))
-
-    for e in range(nelem):
-        vcoords = Xv[vertex_conn[e]]  # (3, dim)
-
-        # Compute J for the affine H1 triangle map (constant over the cell)
-        n0_coords = vcoords[0]
-        n1_coords = vcoords[1]
-        n2_coords = vcoords[2]
-        x0 = n0_coords[0]
-        y0 = n0_coords[1]
-        x1 = n1_coords[0]
-        y1 = n1_coords[1]
-        x2 = n2_coords[0]
-        y2 = n2_coords[1]
-        J = np.array(
-            [
-                [x1 - x0, x2 - x0],
-                [y1 - y0, y2 - y0],
-            ]
-        )
-
-        # Compute detJ
-        detJ = J[0, 0] * J[1, 1] - J[0, 1] * J[1, 0]
-
-        # Compute the dot(N, soln): reference-space vector at the center
-        vref = np.dot(N, signs[e, :] * u[soln_conn[e, :]])
-
-        # Compute the piola transform (contravariant): v_phys = J @ vref / detJ
-        vphys = (J @ vref) / detJ
-
-        # Store the vector
-        vectors[e, : dim - 1] = vphys
-
-        # Compute the physical point using an affine transform for H1 triangle
-        centers[e, :dim] = vcoords.mean(axis=0)
-
-    return centers, vectors
-
-
-# def visualize(problem: Problem, soln):
-
-#     cells = []
-
-#     for conn in connectivity:
-#         cells.extend([len(conn), *conn])
-
-#     cells = np.asarray(cells, dtype=np.int64)
-
-#     vtk_types = np.asarray(
-#         [VTK_CELL_TYPES[t] for t in cell_types],
-#         dtype=np.uint8,
-#     )
-
-#     grid = pv.UnstructuredGrid(cells, vtk_types, xyz)
