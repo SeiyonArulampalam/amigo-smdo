@@ -21,6 +21,7 @@ from shell_element import (
     MITC4ShellTying,
     integrand,
 )
+from amigo.fem.visualization import build_pv_grid
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--build", action="store_true", default=False)
@@ -43,10 +44,11 @@ print(f"Lateral: {lateral_surfaces}, bottom: {bottom_line}, top: {top_line}")
 
 # 6 DOF/node: u, v, w translations + rx, ry, rz global rotations
 soln_space = SolutionSpace(
-    {"u": "H1", "v": "H1", "w": "H1", "rx": "H1", "ry": "H1", "rz": "H1"}
+    {"u": "H1", "v": "H1", "w": "H1", "rx": "H1", "ry": "H1", "rz": "H1"}, degree=1
 )
 geo_space = SolutionSpace(
-    {"x": "H1", "y": "H1", "z": "H1", "nx": "H1", "ny": "H1", "nz": "H1"}
+    {"x": "H1", "y": "H1", "z": "H1", "nx": "H1", "ny": "H1", "nz": "H1"},
+    degree=1,
 )
 data_space = SolutionSpace({})
 
@@ -206,4 +208,5 @@ print("Error = ", np.max(np.absolute(w_diff)) / np.max(w))
 # conn = np.vstack([mesh.get_conn(s, "CPS4") for s in lateral_surfaces])
 # write_vtu(mesh, conn, u, v, w, filename="cylinder_shell.vtu")
 # write_vtu(mesh, conn, u_ex, v_ex, w_ex, filename="cylinder_shell_exact.vtu")
-problem.visualize(x, "soln.u", "SURFACE1")
+grid = build_pv_grid(problem, "u", x, "SURFACE1", "soln")
+grid.plot(scalars="u", cmap="coolwarm", show_edges=True)
