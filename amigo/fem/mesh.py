@@ -37,15 +37,21 @@ class Mesh:
         self.block_topo = [ElementBlockTopology(block=block) for block in self.blocks]
 
         # Build the block topology for the edges
-        self._build_edges()
+        self._build_topology()
 
     def _get_block_vertex_conn(self, block):
         vertex_local = block.element_type.vertices
         return block.connectivity[:, vertex_local]
 
-    def _build_edges(self):
+    def _build_topology(self):
+        vertex_map = {}
+        next_vert = 0
+
         edge_map = {}
         next_edge = 0
+
+        face_map = {}
+        next_face = 0
 
         self.edge_conn = []
         self.edge_orientation = []
@@ -53,8 +59,18 @@ class Mesh:
         for block_id, block in enumerate(self.blocks):
             ref_cell = REFERENCE_CELLS[block.cell_type]
             vertex_conn = self._get_block_vertex_conn(block)
-
             nelem = vertex_conn.shape[0]
+
+            for elem in range(nelem):
+                for local_vert in range(vertex_conn.shape[1]):
+                    n0 = int(vertex_conn[elem, local_vert])
+
+                    if n0 not in vertex_map:
+                        vertex_map[n0] = next_vert
+                        next_vert += 1
+
+                    vertex_conn[elem, local_vert] = vertex_map[n0]
+
             nedge = len(ref_cell.edges)
             edge_conn = np.empty((nelem, nedge), dtype=np.int64)
             edge_orientation = np.empty((nelem, nedge), dtype=np.int8)
@@ -75,6 +91,33 @@ class Mesh:
             self.block_topo[block_id].vertex_conn = vertex_conn
             self.block_topo[block_id].edge_conn = edge_conn
             self.block_topo[block_id].edge_orientation = edge_orientation
+
+            nface = len(ref_cell.faces)
+            face_conn = np.empty((nelem, nface), dtype=np.int64)
+            face_orientation = np.empty((nelem, nface), dtype=np.int8)
+
+            for elem in range(nelem):
+                for local_face, face in enumerate(ref_cell.faces):
+                    # n0 = int(vertex_conn[elem, i0])
+                    # n1 = int(vertex_conn[elem, i1])
+                    # key = (min(n0, n1), max(n0, n1))
+
+                    # if key not in edge_map:
+                    #     edge_map[key] = next_edge
+                    #     next_edge += 1
+
+                    face_conn[elem, local_face] = next_face
+                    face_orientation[elem, local_face] = 0
+                    next_face += 1
+
+            self.block_topo[block_id].face_conn = face_conn
+            self.block_topo[block_id].face_orientation = face_orientation
+
+        return
+
+    def get_spatial_dim(self):
+        """Get the spatial dimension of the problem"""
+        return self.X.shape[1]
 
     def get_num_blocks(self):
         """Get the names of all domains within the mesh"""
@@ -140,45 +183,3 @@ class Mesh:
             self.block_topo[block_id].face_conn,
             self.block_topo[block_id].face_orientation,
         )
-
-    #     return self.parser.get_face_conn(domain, cell_type)
-
-
-# What's needed:
-#
-# 1. Element block maps to cell type and domain names
-
-
-# class Mesh:
-#     def __init__(self, filename: str):
-#         ext = Path(filename).suffix
-#         if ext == ".inp" or ext == ".INP":
-#             self.parser = InpParser()
-#             self.parser.parse_inp(filename)
-#         else:
-#             raise ValueError(f"Unrecognized file extension {ext}")
-#         self.X = self.parser.get_nodes()
-
-#         return
-
-#     def get_domains(self):
-#         """Get the names of all domains within the mesh"""
-#         return self.parser.get_domains()
-
-#     def get_cell_types(self, domain):
-#         """Get the cell types within a domain"""
-#         return self.parser.get_domains()[domain]
-
-#     def get_vertex_conn(self, domain, cell_type):
-#         """Get the connectivity of the vertices for a component"""
-#         return self.parser.get_conn(domain, cell_type)
-
-#     def get_edge_conn(self, domain, cell_type):
-#         """Get the edge connectivity"""
-#         return self.parser.get_edge_conn(domain, cell_type)
-
-#     def get_face_conn(self, domain, cell_type):
-#         return self.parser.get_face_conn(domain, cell_type)
-
-#     def get_num_elements(self, name, cell_type):
-#         return self.parser.get_conn(name, cell_type).shape[0]

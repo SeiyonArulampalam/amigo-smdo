@@ -38,8 +38,8 @@ class InpParser:
         self.node_id_map = {}
         self.element_id_map = {}
 
+        # Node sets from the INP
         self.node_sets = {}
-        self.surfaces = []
 
         return
 
@@ -100,8 +100,6 @@ class InpParser:
 
                     key = (elset, source_type)
                     self._elements.setdefault(key, {})
-                    if "SURFACE" in elset and elset not in self.surfaces:
-                        self.surfaces.append(elset)
 
                 elif header.startswith("*NSET"):
                     section = "NSET"
@@ -223,137 +221,6 @@ class InpParser:
     def get_node_sets(self):
         return self.node_sets
 
-    def get_num_surfaces(self):
-        return len(self.surfaces)
-
-
-# class InpParser:
-#     def __init__(self):
-#         self.X = {}
-#         self.elem_conn = {}
-#         self.edge_conn = {}
-#         self.edge_orientation = {}
-#         self.node_sets = {}
-#         self.surfaces = []
-#         self.cell_type_map = {CellType.TRIANGLE: "CPS3", CellType.SEGMENT: "T3D2"}
-#         self.elem_type_map = {v: k for k, v in self.cell_type_map.items()}
-
-#     def _read_file(self, filename):
-#         with open(filename, "r", errors="ignore") as fp:
-#             return [line.rstrip("\n") for line in fp]
-
-#     def _split_csv_line(self, s):
-#         # ABAQUS lines are simple CSV-like, no quotes typically
-#         return [p.strip() for p in s.split(",") if p.strip()]
-
-#     def _find_kw(self, header, key):
-#         m = re.search(rf"\b{re.escape(key)}\s*=\s*([^,\s]+)", header, flags=re.I)
-#         return m.group(1) if m else None
-
-#     def parse_inp(self, filename):
-#         # Mapping from element name to cell type
-#         elem_mapping = {
-#             "T3D2": CellType.SEGMENT,
-#             "CPS3": CellType.TRIANGLE,
-#             "CPS4": CellType.QUADRILATERAL,
-#         }
-
-#         self.__init__()
-#         section = elset = elem_type = nset_name = None
-
-#         for line in self._read_file(filename):
-#             raw = line.strip()
-#             if not raw or raw.startswith("**"):
-#                 continue
-
-#             if raw.startswith("*"):
-#                 header = raw.upper()
-#                 # Match "*NODE" / "*ELEMENT" but not "*NODE OUTPUT" / "*ELEMENT OUTPUT"
-#                 if re.match(r"\*NODE\s*(,|$)", header):
-#                     section = "NODE"
-#                 elif re.match(r"\*ELEMENT\s*(,|$)", header):
-#                     section = "ELEMENT"
-#                     elem_type = elem_mapping[self._find_kw(header, "TYPE")]
-#                     elset = self._find_kw(header, "ELSET")
-#                     self.elem_conn.setdefault(elset, {}).setdefault(elem_type, {})
-#                     if elset and "SURFACE" in elset and elset not in self.surfaces:
-#                         self.surfaces.append(elset)
-#                 elif header.startswith("*NSET"):
-#                     section = "NSET"
-#                     nset_name = self._find_kw(header, "NSET")
-#                     self.node_sets.setdefault(nset_name, [])
-#                 else:
-#                     section = None
-#                 continue
-
-#             parts = self._split_csv_line(raw)
-#             if section == "NODE":
-#                 z = float(parts[3]) if len(parts) > 3 else 0.0
-#                 self.X[int(parts[0]) - 1] = (float(parts[1]), float(parts[2]), z)
-#             elif section == "ELEMENT":
-#                 self.elem_conn[elset][elem_type][int(parts[0]) - 1] = [
-#                     int(p) - 1 for p in parts[1:]
-#                 ]
-#             elif section == "NSET":
-#                 self.node_sets[nset_name].extend(int(p) - 1 for p in parts)
-
-#         # Add all the edges to the domain
-#         self._build_edge_conn()
-
-#         return
-
-#     def _build_edge_conn(self):
-#         edges = {}
-
-#         # Loop over the connectivity
-#         for elset in self.elem_conn:
-#             self.edge_conn[elset] = {}
-#             self.edge_orientation[elset] = {}
-
-#             for cell_type in self.elem_conn[elset]:
-#                 conn = self.get_conn(elset, cell_type)
-
-#                 # Get the local edges
-#                 local_edges = REFERENCE_CELLS[cell_type].edges
-
-#                 edge_conn = np.zeros((len(conn), len(local_edges)), dtype=int)
-#                 edge_orientation = np.zeros_like(edge_conn)
-
-#                 for e, nodes in enumerate(conn):
-#                     for i, local in enumerate(local_edges):
-#                         n0, n1 = int(nodes[local[0]]), int(nodes[local[1]])
-#                         key = (min(n0, n1), max(n0, n1))
-#                         if key not in edges:
-#                             edges[key] = len(edges)
-
-#                         edge_conn[e, i] = edges[key]
-#                         edge_orientation[e, i] = 1 if n0 < n1 else -1
-
-#                 # Add the edges
-#                 self.edge_conn[elset][cell_type] = edge_conn
-#                 self.edge_orientation[elset][cell_type] = edge_orientation
-
-#         return
-
-#     def get_nodes(self):
-#         return np.array([self.X[k] for k in sorted(self.X.keys())])
-
-#     def get_domains(self):
-#         return {elset: list(types) for elset, types in self.elem_conn.items()}
-
-#     def get_num_surfaces(self):
-#         return len(self.surfaces)
-
-#     def get_conn(self, elset, cell_type):
-#         conn = self.elem_conn[elset.upper()][cell_type]
-#         return np.array([conn[k] for k in sorted(conn.keys())], dtype=int)
-
-#     def get_edge_conn(self, elset, cell_type: CellType):
-#         return (
-#             self.edge_conn[elset.upper()][cell_type],
-#             self.edge_orientation[elset.upper()][cell_type],
-#         )
-
 
 # class BdfParser:
 #     def __init__(self, filename: str, debug: bool = False):
@@ -453,16 +320,17 @@ class InpParser:
 #         return np.array([conn[k] for k in sorted(conn.keys())], dtype=int)
 
 
-from pyNastran.bdf.bdf import BDF
-
-
 class BdfParser:
     def __init__(self):
+        from pyNastran.bdf.bdf import BDF
+
+        self.BDF = BDF
+
         self.X = {}
         self.elem_conn = {}
 
     def parse_bdf(self, filename):
-        model = BDF()
+        model = self.BDF()
         model.read_bdf(filename)
 
         # --------------------------------------------------------

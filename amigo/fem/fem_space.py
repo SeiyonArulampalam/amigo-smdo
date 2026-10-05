@@ -23,7 +23,7 @@ class FunctionSpace:
 
 
 class SolutionSpace:
-    def __init__(self, mapping):
+    def __init__(self, mapping, degree=1):
         self._space_mapping = {
             "H1": Space.H1,
             "L2": Space.L2,
@@ -43,7 +43,7 @@ class SolutionSpace:
             elif isinstance(space, str):
                 try:
                     # Enum lookup is by name, not value: auto() values are ints.
-                    space = FunctionSpace(self._space_mapping[space])
+                    space = FunctionSpace(self._space_mapping[space], degree=degree)
                 except KeyError:
                     raise ValueError(f"Unknown function space '{space}'")
             elif not isinstance(space, FunctionSpace):

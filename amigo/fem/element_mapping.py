@@ -19,6 +19,26 @@ class MeshElementType:
     face_nodes: tuple[tuple[int, ...], ...] = ()
     cell_nodes: tuple[int, ...] = ()
 
+    def get_entity_dofs(self):
+        """Get the indices of the local dof in Amigo ordering"""
+
+        dofs = []
+        for v in self.vertices:
+            dofs.append(v)
+
+        for e in self.edge_nodes:
+            for v in e:
+                dofs.append(v)
+
+        for f in self.face_nodes:
+            for v in f:
+                dofs.append(v)
+
+        for v in self.cell_nodes:
+            dofs.append(v)
+
+        return dofs
+
 
 ABAQUS_ELEMENT_TYPES = {
     # ------------------------------------------------------------
@@ -45,8 +65,8 @@ ABAQUS_ELEMENT_TYPES = {
         cell_type=CellType.SEGMENT,
         degree=2,
         family=ElementFamily.LAGRANGE,
-        vertices=(0, 1),
-        edge_nodes=((2,),),
+        vertices=(0, 2),
+        edge_nodes=((1,),),
     ),
     "B21": MeshElementType(
         cell_type=CellType.SEGMENT,

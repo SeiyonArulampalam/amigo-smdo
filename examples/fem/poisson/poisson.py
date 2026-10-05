@@ -28,9 +28,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-H1 = FunctionSpace(func_space=Space.H1, degree=1)
-soln_space = SolutionSpace({"u": H1})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
+soln_space = SolutionSpace({"u": "H1"}, degree=2)
+geo_space = SolutionSpace({"x": "H1", "y": "H1"}, degree=1)
 data_space = SolutionSpace({})
 
 integrand_map = {
@@ -94,4 +93,4 @@ u_exact = np.sin(np.pi * (xpts + 0.5)) * np.sin(np.pi * (ypts + 0.5))
 # mesh.plot(u, ax=ax[0])
 # mesh.plot(u_exact, ax=ax[1])
 # plt.show()
-problem.visualize(x, "soln.u", "SURFACE1")
+# problem.visualize(x, "soln.u", "SURFACE1")

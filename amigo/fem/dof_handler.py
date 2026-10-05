@@ -2,6 +2,7 @@ import amigo as am
 import numpy as np
 from .fem_space import Space, Conformity, FunctionSpace, SolutionSpace
 from .cell_types import CellType, DofLayout
+from .element_mapping import MeshElementType
 from .mesh import Mesh
 
 
@@ -283,6 +284,31 @@ class DofHandler:
 
         raise ValueError(f"Unsupported conformity {conformity}")
 
+    def get_node_to_dof_map(self, func_space: FunctionSpace):
+        """
+        Get the mapping between the ordering of the nodes parsed from the mesh
+        and the dof handler ordering.
+
+        x_dof = x_node[mapping]
+        """
+        ndof = self._num_dof[func_space]
+        mapping = np.empty(ndof, dtype=np.int64)
+
+        for block_id in range(self.mesh.get_num_blocks()):
+            # Extract the local connectivity
+            chunk_key = (func_space, block_id)
+            dof_conn = self._dof_conn[chunk_key]
+
+            # Extract the underlying source node dofs from the mesh input
+            block = self.mesh.blocks[block_id]
+            block_conn = block.connectivity
+            source_dofs = block.element_type.get_entity_dofs()
+
+            for i, source_dof in enumerate(source_dofs):
+                mapping[dof_conn[:, i]] = block_conn[:, source_dof]
+
+        return mapping
+
 
 class DofSource(am.Component):
     def __init__(self, input_names=[], data_names=[], con_names=[], output_names=[]):
@@ -426,65 +452,21 @@ class DegreesOfFreedom:
 
         return
 
-    def get_vertex_dof_to_node(self, space):
+    def get_coordinates(self):
         """
-        Build a mapping from global DOF number to mesh vertex index for the
-        vertex DOFs of a degree-1 H1 FunctionSpace.
-
-        The DOF handler numbers DOFs in order of first encounter while
-        traversing domains/elements, which is a permutation of the mesh node
-        ordering (not the identity). To write nodal quantities such as the
-        geometry coordinates into the data vector, we must scatter each mesh
-        node's value into the slot of the DOF that represents it.
-
-        Returns
-        -------
-        dof_to_node : np.ndarray
-            Array of length get_num_dof(space) where dof_to_node[dof] is the
-            mesh node index represented by that DOF.
+        Get the coordinates from the underlying mesh in the DOF handler order.
         """
-        ndof = self.dof_handler.get_num_dof(space)
-        dof_to_node = np.full(ndof, -1, dtype=np.int64)
 
-        # Build the layouts
-        elem_layouts = {}
-        for cell_type in self.mesh.get_cell_types():
-            elem_layouts[cell_type] = DofLayout.make_layout(space, cell_type)
+        geo_space = self.solution_space.get_spaces()[0]
+        node_to_dof = self.dof_handler.get_node_to_dof_map(geo_space)
 
-        # For each cell type in each domain
-        for block_id in range(self.mesh.get_num_blocks()):
-            # Get the cell type
-            cell_type = self.mesh.get_cell_type(block_id)
-
-            # DOF connectivity (global DOF numbers) for this chunk
-            conn = self.dof_handler.get_dof_conn(space, block_id)
-
-            # Mesh vertex connectivity (global node numbers)
-            vertex_conn = self.mesh.get_vertex_conn(block_id)
-
-            layout = elem_layouts[cell_type]
-
-            # The first len(vertex_dofs) local DOFs are the vertex DOFs,
-            # placed at layout.vertex_dofs local positions and aligned with
-            # the mesh vertex ordering.
-            for local_vertex, local_dof in enumerate(layout.vertex_dofs):
-                dof_to_node[conn[:, local_dof]] = vertex_conn[:, local_vertex]
-
-        return dof_to_node
-
-    def get_node_coordinates(self, space, X):
-        """
-        Reorder mesh node coordinates X (shape (num_nodes, dim)) so that the
-        result is indexed by global DOF number for a degree-1 H1 geometry
-        space. coords[dof] == X[node_represented_by_dof].
-        """
-        dof_to_node = self.get_vertex_dof_to_node(space)
-        if np.any(dof_to_node < 0):
+        if np.any(node_to_dof < 0):
             raise ValueError(
                 "Some geometry DOFs are not associated with a mesh vertex; "
                 "setting nodal coordinates requires a degree-1 H1 geometry space."
             )
-        return X[dof_to_node]
+
+        return self.mesh.X[node_to_dof]
 
 
 class ScaledBC(am.Component):
