@@ -36,13 +36,6 @@ class DofHandler:
         #   (FunctionSpace, domain, CellType) -> ndarray [+/- 1] only
         self._dof_signs = {}
 
-        # Mapping between the mesh entities and the dof
-        # (FunctionSpace) -> mapping : dict {entity key -> dof}
-        self._vertex_dof = {}
-        self._edge_dof = {}
-        self._face_dof = {}
-        self._cell_dof = {}
-
         # Build the DOF numbering.
         self._build()
 
@@ -236,27 +229,8 @@ class DofHandler:
             self._dof_signs[chunk_key] = signs
 
         self._num_dof[func_space] = next_dof
-        self._vertex_dof[func_space] = vertex_dof
-        self._edge_dof[func_space] = edge_dof
-        self._face_dof[func_space] = face_dof
-        self._cell_dof[func_space] = cell_dof
+
         return
-
-    def get_vertex_dof_mapping(self, space: FunctionSpace):
-        """Get a map for the mesh vertex ordering to the dof ordering"""
-        return self._vertex_dof[space]
-
-    def get_edge_dof_mapping(self, space: FunctionSpace):
-        """Get a map for the mesh edge ordering to the dof ordering"""
-        return self._edge_dof[space]
-
-    def get_face_dof_mapping(self, space: FunctionSpace):
-        """Get a map for the mesh face ordering to the dof ordering"""
-        return self._face_dof[space]
-
-    def get_cell_dof_mapping(self, space: FunctionSpace):
-        """Get a map for the cell face ordering to the dof ordering"""
-        return self._cell_dof[space]
 
     @staticmethod
     def make_entity_key(
