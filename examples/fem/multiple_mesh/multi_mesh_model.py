@@ -1,5 +1,5 @@
 import numpy as np
-from amigo.fem import dot_product, Problem, Mesh, basis
+from amigo.fem import dot_product, Problem, Mesh, basis, CustomOrderedBCs, build_grid
 import amigo as am
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
@@ -34,21 +34,21 @@ meshes = {
     "Mesh1": Mesh("multidomain.inp"),
 }
 
+custom = CustomOrderedBCs(dir=1, start=False, end=False)
+
 bc_map_mesh0 = {
     "DirichletLine3": {
         "type": "dirichlet",
         "target": ["LINE3"],
         "input": ["u"],
     },
-    # "SymmMesh0": {
-    #     "type": "scaled",
-    #     "input": ["u"],
-    #     "start": False,
-    #     "end": False,
-    #     "target": [["LINE2"], ["LINE4"]],
-    #     "flip": [False, False],
-    #     "scale": [1.0, 1.0],
-    # },
+    "SymmMesh0": {
+        "type": "scaled",
+        "input": ["u"],
+        "callback": custom,
+        "target": [["LINE2"], ["LINE4"]],
+        "scale": [1.0, 1.0],
+    },
 }
 
 bc_map_mesh1 = {
@@ -57,15 +57,13 @@ bc_map_mesh1 = {
         "target": ["LINE1"],
         "input": ["u"],
     },
-    # "SymmMesh0": {
-    #     "type": "scaled",
-    #     "input": ["u"],
-    #     "start": False,
-    #     "end": False,
-    #     "target": [["LINE2"], ["LINE4"]],
-    #     "flip": [False, False],
-    #     "scale": [1.0, 1.0],
-    # },
+    "SymmMesh0": {
+        "type": "scaled",
+        "input": ["u"],
+        "callback": custom,
+        "target": [["LINE2"], ["LINE4"]],
+        "scale": [1.0, 1.0],
+    },
 }
 
 bc_map = {"Mesh0": bc_map_mesh0, "Mesh1": bc_map_mesh1}
@@ -91,6 +89,7 @@ geo_space = basis.SolutionSpace({"x": "H1", "y": "H1"})
 model = am.Model("multi_mesh_model")
 
 # Create an amigo model for each mesh
+sub_problems = []
 for mesh_name, mesh in meshes.items():
     problem = Problem(
         mesh,
@@ -100,6 +99,7 @@ for mesh_name, mesh in meshes.items():
         integrand_map=integrand_map[mesh_name],
         bc_map=bc_map[mesh_name],
     )
+    sub_problems.append(problem)
     sub_model = problem.create_model(mesh_name)
     model.add_model(mesh_name, sub_model)
 
@@ -175,25 +175,5 @@ u_domain1 = x["Mesh1.soln.u"]
 max_domain = np.max(np.maximum(u_domain0, u_domain1))
 min_domain = np.min(np.minimum(u_domain0, u_domain1))
 
-problem.visualize(x, "Mesh0.soln.u", "SURFACE1")
-
-# TODO: Fix plot
-# # Plot solution field
-# fig, ax = plt.subplots()
-# mesh.plot(
-#     u_domain0,
-#     ax=ax,
-#     x_offset=0.0,
-#     y_offset=0.0,
-#     max_level=max_domain,
-#     min_level=min_domain,
-# )
-# mesh.plot(
-#     u_domain1,
-#     ax=ax,
-#     x_offset=x_offset,
-#     y_offset=-5.0,
-#     max_level=max_domain,
-#     min_level=min_domain,
-# )
-# plt.show()
+grid = build_grid(sub_problems[0], "u", x, "SURFACE1", "Mesh0.soln")
+grid.plot(scalars="u", show_edges=True, cmap="coolwarm")

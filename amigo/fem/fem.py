@@ -3,7 +3,8 @@ import numpy as np
 from .element import FiniteElement, FiniteElementOutput
 from .fem_space import Space, SolutionSpace
 from .basis import make_basis
-from .dof_handler import DofSource, DegreesOfFreedom, BoundaryConditions
+from .dof_handler import DofSource, DegreesOfFreedom
+from .boundary_conditions import BoundaryConditions
 from .quadrature import make_quadrature, ReducedQuadQuadrature
 
 

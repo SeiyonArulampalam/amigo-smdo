@@ -123,6 +123,10 @@ class Mesh:
         """Get the names of all domains within the mesh"""
         return len(self.blocks)
 
+    def get_domain_names(self):
+        """Get all of the block names"""
+        return list(dict.fromkeys(block.domain for block in self.blocks))
+
     def get_domain_name(self, block_id: int):
         return self.blocks[block_id].domain
 

@@ -1,8 +1,7 @@
 import amigo as am
 import numpy as np
 from .fem_space import Space, Conformity, FunctionSpace, SolutionSpace
-from .cell_types import CellType, DofLayout
-from .element_mapping import MeshElementType
+from .cell_types import DofLayout
 from .mesh import Mesh
 
 
@@ -336,9 +335,7 @@ class DegreesOfFreedom:
                 sub_model = am.Model()
                 for data_name in names:
 
-                    domains = self.mesh.get_domains()
-
-                    domain_names = [name for name in domains]
+                    domain_names = self.mesh.get_domain_names()
                     input_names, data_names, con_names = [], [], []
                     if self.kind == "input":
                         input_names = domain_names
@@ -441,158 +438,3 @@ class DegreesOfFreedom:
             )
 
         return self.mesh.X[node_to_dof]
-
-
-class ScaledBC(am.Component):
-    def __init__(self, name, input_name=[], scale=[1.0, 1.0]):
-        super().__init__(name)
-
-        if len(scale) != 2:
-            raise ValueError("scale must be of length 2")
-
-        self.input_name = input_name
-
-        self.add_constant(f"scale_left", value=scale[0])
-        self.add_constant(f"scale_right", value=scale[1])
-
-        for name in self.input_name:
-            self.add_input(f"{name}_left", value=1.0)
-            self.add_input(f"{name}_right", value=1.0)
-            self.add_constraint(f"res_{name}")
-
-        return
-
-    def compute(self):
-        scale_left = self.constants["scale_left"]
-        scale_right = self.constants["scale_right"]
-
-        for name in self.input_name:
-            self.constraints[f"res_{name}"] = (
-                scale_left * self.inputs[f"{name}_left"]
-                + scale_right * self.inputs[f"{name}_right"]
-            )
-        return
-
-
-class BoundaryConditions:
-    def __init__(
-        self,
-        bc_name: str,
-        dof_handler: DofHandler,
-        bc={},
-        integrand_formulation: str = "potential",
-    ):
-        if not (
-            bc["type"] == "dirichlet"
-            or bc["type"] == "continuity"
-            or bc["type"] == "scaled"
-        ):
-            typ = bc["type"]
-            raise ValueError(f"Unrecognized boundary condition type {typ}")
-        self.bc_name = bc_name
-        self.dof_handler = dof_handler
-        self.bc = bc
-        self.integrand_formulation = integrand_formulation
-        return
-
-    def _get_target_dof(self, name: str, targets: list[str]):
-        all_dof = []
-        for target in targets:
-            dof = self.dof_handler.get_dof_in_domain(name, target)
-            all_dof.extend(dof)
-
-        return np.unique(all_dof)
-
-    # def _get_ordered_dof(
-    #     self, name: str, targets: list[str], start: bool = True, end: bool = True
-    # ):
-
-    #     # unique = list(dict.fromkeys(all_dof))
-
-    #     if not start or not end:
-    #         raise NotImplementedError
-
-    #         # This logic no longer works - need to find a better way
-    #         # if not start:
-    #         #     unique = unique[1:]
-    #         # if not end:
-    #         #     unique = unique[:-1]
-
-    #     return unique
-
-    # def _reorder_nodes(self, nodes_left, nodes_right):
-    #     nodes_left = np.array(nodes_left)
-    #     nodes_right = np.array(nodes_right)
-
-    #     y_left = self.mesh.X[nodes_left, 1]
-    #     y_right = self.mesh.X[nodes_right, 1]
-
-    #     idx_left = np.argsort(y_left)
-    #     idx_right = np.argsort(y_right)
-
-    #     return nodes_left[idx_left], nodes_right[idx_right]
-
-    # def _get_matched_nodes(self, targets, start=True, end=True):
-    #     left_target_lines = targets[0]
-    #     right_target_lines = targets[1]
-    #     nodes_left = self._get_ordered_dof(left_target_lines, start, end)
-    #     nodes_right = self._get_ordered_dof(right_target_lines, start, end)
-
-    #     if len(nodes_left) != len(nodes_right):
-    #         raise Exception(f"nnodes left != nnodes right")
-
-    #     # Reorder the nodes to match
-    #     return self._reorder_nodes(nodes_left, nodes_right)
-
-    def add_bcs(self, model):
-        """Add the boundary conditions to the model"""
-
-        if self.bc["type"] == "dirichlet":
-            input_names = self.bc["input"]
-            for name in input_names:
-                dof = self._get_target_dof(name, self.bc["target"])
-
-                # Fix the DOF
-                model.add_fixed(f"soln.{name}", dof)
-                if self.integrand_formulation == "weak":
-                    model.add_fixed(f"multiplier.res_{name}", dof)
-
-        else:
-            # start = self.bc.get("start", True)
-            # end = self.bc.get("end", True)
-
-            left_dof = self.bc.get("left_dof")
-            right_dof = self.bc.get("right_dof")
-            # nodes_left, nodes_right = self._get_matched_nodes(
-            #     targets, start=start, end=end
-            # )
-
-            input_names = self.bc["input"]
-            if self.bc["type"] == "continuity":
-                for name in input_names:
-                    model.link(
-                        f"soln.{name}",
-                        f"soln.{name}",
-                        src_indices=left_dof,
-                        tgt_indices=right_dof,
-                    )
-
-            elif self.bc["type"] == "scaled":
-                scale = self.bc["scale"]
-                class_name = f"ScaledBC_{self.bc_name}"
-                bc_src = ScaledBC(class_name, input_names, scale=scale)
-
-                if len(left_dof) > 0:
-                    model.add_component(f"{self.bc_name}", len(left_dof), bc_src)
-
-                    for name in input_names:
-                        model.link(
-                            f"soln.{name}",
-                            f"{self.bc_name}.{name}_left",
-                            src_indices=left_dof,
-                        )
-                        model.link(
-                            f"soln.{name}",
-                            f"{self.bc_name}.{name}_right",
-                            src_indices=right_dof,
-                        )

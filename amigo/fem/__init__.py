@@ -5,6 +5,8 @@ from .cell_types import CellType
 from .basis import make_basis, ConstValue, H1Value, HdivValue
 from .basis import dot_product, curl_2d, mat_vec, mat_vec_transpose
 from .quadrature import make_quadrature
+from .boundary_conditions import CustomOrderedBCs
+from .visualization import build_grid
 
 from .quadrature import (
     LineQuadrature,
@@ -48,4 +50,6 @@ __all__ = [
     QuadQuadrature,
     make_basis,
     make_quadrature,
+    CustomOrderedBCs,
+    build_grid,
 ]

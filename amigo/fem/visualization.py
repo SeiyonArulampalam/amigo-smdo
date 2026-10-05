@@ -73,7 +73,7 @@ def _p1_shape_functions(cell_type: CellType, pts: np.ndarray) -> np.ndarray:
     )
 
 
-def build_pv_grid(
+def build_grid(
     problem: Problem,
     name: str,
     x,
