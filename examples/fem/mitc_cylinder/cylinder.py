@@ -47,7 +47,8 @@ soln_space = SolutionSpace(
     {"u": "H1", "v": "H1", "w": "H1", "rx": "H1", "ry": "H1", "rz": "H1"}, degree=1
 )
 geo_space = SolutionSpace(
-    {"x": "H1", "y": "H1", "z": "H1", "nx": "H1", "ny": "H1", "nz": "H1"}, degree=1,
+    {"x": "H1", "y": "H1", "z": "H1", "nx": "H1", "ny": "H1", "nz": "H1"},
+    degree=1,
 )
 data_space = SolutionSpace({})
 
