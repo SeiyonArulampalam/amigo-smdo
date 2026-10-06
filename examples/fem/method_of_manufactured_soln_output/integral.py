@@ -8,21 +8,19 @@ import argparse
 
 # Method of Manufactured solutions
 def output(soln, data=None, geo=None):
-    u = soln["u"]
-    uvalue = u["value"]
-    return {"integrand": uvalue}
+    u = soln["u"].value
+    return {"integrand": u}
 
 
 def potential(soln, data=None, geo=None):
-    u = soln["u"]
-    uvalue = u["value"]
-    ugrad = u["grad"]
-    x = geo["x"]["value"]
-    y = geo["y"]["value"]
+    u = soln["u"].value
+    ugrad = soln["u"].grad
+    x = geo["x"].value
+    y = geo["y"].value
 
     f = -2 * np.pi**2 * am.sin(np.pi * x) * am.sin(np.pi * y)
 
-    wf = 0.5 * dot_product(ugrad, ugrad, n=2) - f * uvalue
+    wf = 0.5 * dot_product(ugrad, ugrad, n=2) - f * u
     return wf
 
 
@@ -40,11 +38,11 @@ args = parser.parse_args()
 # Define mesh objects
 meshes = {"Mesh0": Mesh("plate.inp")}
 
-potential_map = {
+integrand_map = {
     "Mesh0": {
         "air": {
             "target": ["SURFACE1"],
-            "potential": potential,
+            "integrand": potential,
         },
     }
 }
@@ -78,22 +76,21 @@ output_map = {
 }
 
 # Initialize the spaces (same for all domains)
-soln_space = basis.SolutionSpace({"u": "H1"})
-data_space = basis.SolutionSpace({"Jz": "const"})
-geo_space = basis.SolutionSpace({"x": "H1", "y": "H1"})
+soln_space = basis.SolutionSpace({"soln": {"u": "H1"}})
+data_space = basis.SolutionSpace({"data": {"Jz": "const"}})
+geo_space = basis.SolutionSpace({"geo": {("x", "y"): "H1"}})
 
 # Define the global amigo model
 model = am.Model("mms_module")
-
 
 # Create an amigo model for each mesh
 for mesh_name, mesh in meshes.items():
     problem = Problem(
         mesh,
         soln_space,
-        data_space,
         geo_space,
-        potential_map=potential_map[mesh_name],
+        data_space,
+        integrand_map=integrand_map[mesh_name],
         bc_map=bc_map[mesh_name],
         output_map=output_map[mesh_name],
     )
@@ -108,9 +105,7 @@ p = model.get_problem()
 
 # Set the problem data
 data = model.get_data_vector()
-data["Mesh0.src_geo.x"] = mesh.X[:, 0]
-data["Mesh0.src_geo.y"] = mesh.X[:, 1]
-data["Mesh0.src_data.Jz[0]"] = 10.0
+data["Mesh0.data.Jz.SURFACE1"] = 10.0
 
 mat = p.create_matrix()
 alpha = 1.0
@@ -124,7 +119,7 @@ csr_mat = am.tocsr(mat)
 
 ans.get_array()[:] = spsolve(csr_mat, g.get_array())
 ans_local = ans
-u = ans_local.get_array()[model.get_indices("Mesh0.src_soln.u")]
+u = ans_local.get_array()[model.get_indices("Mesh0.soln.u")]
 
 # Compute the exact solution field
 u_exact = exact(mesh.X[:, 0], mesh.X[:, 1])

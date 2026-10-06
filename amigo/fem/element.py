@@ -49,7 +49,7 @@ class FiniteElement(am.Component):
         soln_xi = self.soln_basis.eval(self, quad_point)
         data_xi = None
         if self.data_basis is not None:
-            self.data_basis.eval(self, quad_point)
+            data_xi = self.data_basis.eval(self, quad_point)
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
