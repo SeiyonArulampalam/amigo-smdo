@@ -24,6 +24,13 @@ class ElementBlock:
     property_id: int | None = None
 
 
+@dataclass
+class DirichletBCs:
+    index: int
+    nodes: np.ndarray
+    values: np.ndarray
+
+
 class InpParser:
     def __init__(self):
         # Raw ABAQUS data during parsing
@@ -240,6 +247,7 @@ class BdfParser:
         self.X = None
         self.element_blocks = []
         self.node_sets = {}
+        self.dirichlet_bcs = {}
 
         return
 
@@ -265,8 +273,8 @@ class BdfParser:
 
                 if debug:
                     print(
-                        f"Element ID {elem_id} references undefined property ID {element.pid} in bdf file. "
-                        "A user-defined elemCallBack function will need to be provided."
+                        f"Element ID {elem_id} references undefined property ID "
+                        "{element.pid} in bdf file."
                     )
 
         # Set the node locations
@@ -353,7 +361,9 @@ class BdfParser:
             self.element_blocks.append(block)
 
         # Parse the boundary conditions
-        self.dirichlet_bcs = {}
+        bcs = {}
+        for i in range(6):
+            bcs[i] = {"nodes": [], "values": []}
 
         for spc_id in model.spcs:
             for spc in model.spcs[spc_id]:
@@ -369,7 +379,6 @@ class BdfParser:
                     # Convert the node number
                     inode = node_map[node]
 
-                    bc = {}
                     for dof in range(6):
                         if spc.type == "SPC":
                             comp = spc.components[j]
@@ -379,12 +388,15 @@ class BdfParser:
                             val = 0.0
 
                         if f"{dof + 1}" in comp:
-                            bc[dof] = val
+                            bcs[dof]["nodes"].append(inode)
+                            bcs[dof]["values"].append(val)
 
-                    if inode in self.dirichlet_bcs:
-                        self.dirichlet_bcs[inode].update(bc)
-                    else:
-                        self.dirichlet_bcs[inode] = bc
+        for index in bcs:
+            nodes = np.array(bcs[index]["nodes"], dtype=np.int64)
+            values = np.array(bcs[index]["values"], dtype=float)
+            self.dirichlet_bcs[index] = DirichletBCs(
+                index=index, nodes=nodes, values=values
+            )
 
         return
 

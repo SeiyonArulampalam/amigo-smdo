@@ -59,18 +59,13 @@ class Problem:
         else:
             self.data_dof = None
 
-        # Build the boundary conditions
-        self.boundary_conditions = []
-
         # Get the handler for the boundary conditions
         dof_handler = self.soln_dof.get_dof_handler()
 
-        for name in bc_map:
-            bc = bc_map[name]
-            self.boundary_conditions.append(
-                BoundaryConditions(name, dof_handler, bc, self.integrand_formulation)
-            )
-
+        # Build the boundary conditions
+        self.boundary_conditions = BoundaryConditions(
+            bc_map, dof_handler, self.integrand_formulation
+        )
         return
 
     def _create_element_objs(self):
@@ -216,8 +211,7 @@ class Problem:
                         model.set_data(f"{comp_name}.hcurl_signs", signs)
 
         # Add BC components and links
-        for bc in self.boundary_conditions:
-            bc.add_bcs(model)
+        self.boundary_conditions.add_bcs(model)
 
         # Make a list of all of the outputs
         all_outputs = []

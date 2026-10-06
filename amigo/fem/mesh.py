@@ -32,6 +32,7 @@ class Mesh:
         self.X = parser.get_nodes()
         self.blocks = parser.get_element_blocks()
         self.node_sets = parser.get_node_sets()
+        self.bcs = parser.get_dirichlet_bcs()
 
         # Set the block topology
         self.block_topo = [ElementBlockTopology(block=block) for block in self.blocks]
@@ -189,3 +190,6 @@ class Mesh:
             self.block_topo[block_id].face_conn,
             self.block_topo[block_id].face_orientation,
         )
+
+    def get_dirichlet_bcs(self):
+        return self.bcs

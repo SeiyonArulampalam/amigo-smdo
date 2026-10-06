@@ -87,5 +87,5 @@ u = x["soln.u"]
 u_exact = np.sin(np.pi * (xpts + 0.5)) * np.sin(np.pi * (ypts + 0.5))
 
 # print(np.max(np.absolute(u - u_exact)) / np.max(u_exact))
-grid = build_grid(problem, "u", x, "SURFACE1", "soln")
+grid = build_grid(problem, "u", x)
 grid.plot(scalars="u", cmap="coolwarm", show_edges=True)

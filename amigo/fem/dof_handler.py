@@ -1,8 +1,16 @@
+from dataclasses import dataclass
 import amigo as am
 import numpy as np
 from .fem_space import Space, Conformity, FunctionSpace, SolutionSpace
 from .cell_types import DofLayout
 from .mesh import Mesh
+
+
+@dataclass
+class DirichletBCsForDof:
+    name: str
+    dofs: np.ndarray
+    values: np.ndarray
 
 
 class DofHandler:
@@ -37,6 +45,12 @@ class DofHandler:
 
         # Build the DOF numbering.
         self._build()
+
+    def get_mesh(self):
+        return self.mesh
+
+    def get_solution_space(self):
+        return self.solution_space
 
     def get_num_dof(self, func_space: FunctionSpace) -> int:
         """
@@ -292,6 +306,37 @@ class DofHandler:
                 mapping[dof_conn[:, i]] = block_conn[:, source_dof]
 
         return mapping
+
+    def get_dirichlet_bcs(self):
+        """Get the dofs and values for the Dirichlet Boundary conditions"""
+
+        # Boundary conditions on the degrees of freedom
+        dof_bcs = {}
+
+        # Get the boundary conditions on the underlying nodes (if any)
+        bcs = self.mesh.get_dirichlet_bcs()
+
+        if len(bcs) > 0:
+            # Build a map of index to name for the solution
+            bc_map = {}
+            for i, (name, space) in enumerate(self.solution_space.fields):
+                bc_map[name] = i
+
+            # Find and apply the mapping for each space
+            for space in self.solution_space.get_spaces():
+                mapping = self.get_dof_to_node_map(space)
+                inverse = np.empty_like(mapping)
+                inverse[mapping] = np.arange(len(mapping))
+
+                for name in self.solution_space.get_names(space):
+                    index = bc_map[name]
+
+                    dofs = inverse[bcs[index].nodes]
+                    dof_bcs[name] = DirichletBCsForDof(
+                        name=name, dofs=dofs, values=bcs[index].values
+                    )
+
+        return dof_bcs
 
 
 class DofSource(am.Component):
