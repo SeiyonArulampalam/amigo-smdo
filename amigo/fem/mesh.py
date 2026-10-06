@@ -154,7 +154,9 @@ class Mesh:
 
     def get_block_ids(self, domains: str | list[str]):
         """Get a list of the block ids in a domain"""
-        if isinstance(domains, str):
+        if domains is None:
+            return list(range(len(self.blocks)))
+        elif isinstance(domains, str):
             return [i for i, block in enumerate(self.blocks) if block.domain == domains]
         elif isinstance(domains, list):
             d = {}

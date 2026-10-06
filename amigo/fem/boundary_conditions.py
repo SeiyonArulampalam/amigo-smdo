@@ -42,9 +42,7 @@ class CustomOrderedBCs:
 
     def __call__(self, name, targets, dof_handler):
         mesh = dof_handler.mesh
-        space = dof_handler.solution_space.get_space(name)
-
-        mapping = dof_handler.get_node_to_dof_map(space)
+        mapping = dof_handler.get_dof_to_node_map(name)
         inverse = np.empty_like(mapping)
         inverse[mapping] = np.arange(len(mapping))
 
@@ -110,6 +108,7 @@ class BoundaryConditions:
         ):
             typ = bc["type"]
             raise ValueError(f"Unrecognized boundary condition type {typ}")
+
         self.bc_name = bc_name
         self.dof_handler = dof_handler
         self.bc = bc
@@ -127,27 +126,38 @@ class BoundaryConditions:
     def add_bcs(self, model):
         """Add the boundary conditions to the model"""
 
+        solution_space = self.dof_handler.solution_space
+
+        # Extract any dirichlet boundary conditions direct from the DofHandler
+        # bcs = self.dof_handler.get_dirichlet_bcs()
+        # if len(bcs) > 0:
+        #     for name in bcs:
+        #         model.add_fixed(f"soln.{name}", bcs[name].dofs)
+
         if self.bc["type"] == "dirichlet":
+            # Add boundary conditions from the input specification
             input_names = self.bc["input"]
             for name in input_names:
                 dof = self._get_target_dof(name, self.bc["target"])
 
                 # Fix the DOF
-                model.add_fixed(f"soln.{name}", dof)
+                comp_name = solution_space.get_component_name(name)
+                model.add_fixed(f"{comp_name}.{name}", dof)
                 if self.integrand_formulation == "weak":
-                    model.add_fixed(f"multiplier.res_{name}", dof)
+                    model.add_fixed(f"{comp_name}.res_{name}", dof)
         else:
             input_names = self.bc["input"]
             target = self.bc["target"]
             callback = self.bc["callback"]
 
             for name in input_names:
+                comp_name = solution_space.get_component_name(name)
                 left_dofs, right_dofs = callback(name, target, self.dof_handler)
 
                 if self.bc["type"] == "continuity":
                     model.link(
-                        f"soln.{name}",
-                        f"soln.{name}",
+                        f"{comp_name}.{name}",
+                        f"{comp_name}.{name}",
                         src_indices=left_dofs,
                         tgt_indices=right_dofs,
                     )
@@ -161,12 +171,12 @@ class BoundaryConditions:
                         model.add_component(f"{self.bc_name}", len(left_dofs), bc_src)
 
                         model.link(
-                            f"soln.{name}",
+                            f"{comp_name}.{name}",
                             f"{self.bc_name}.{name}_left",
                             src_indices=left_dofs,
                         )
                         model.link(
-                            f"soln.{name}",
+                            f"{comp_name}.{name}",
                             f"{self.bc_name}.{name}_right",
                             src_indices=right_dofs,
                         )

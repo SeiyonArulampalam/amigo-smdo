@@ -21,7 +21,7 @@ from shell_element import (
     MITC4ShellTying,
     integrand,
 )
-from amigo.fem.visualization import build_pv_grid
+from amigo.fem.visualization import build_grid
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--build", action="store_true", default=False)
@@ -204,9 +204,6 @@ u_ex, v_ex, w_ex = get_exact_solution(data["geo.x"], data["geo.y"], data["geo.z"
 w_diff = w - w_ex
 print("Error = ", np.max(np.absolute(w_diff)) / np.max(w))
 
-# TODO: Fix plotting
-# conn = np.vstack([mesh.get_conn(s, "CPS4") for s in lateral_surfaces])
-# write_vtu(mesh, conn, u, v, w, filename="cylinder_shell.vtu")
-# write_vtu(mesh, conn, u_ex, v_ex, w_ex, filename="cylinder_shell_exact.vtu")
-grid = build_pv_grid(problem, "u", x, "SURFACE1", "soln")
+# Plot the mesh
+grid = build_grid(problem, "u", x, "SURFACE1", "soln")
 grid.plot(scalars="u", cmap="coolwarm", show_edges=True)

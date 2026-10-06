@@ -77,8 +77,7 @@ def build_grid(
     problem: Problem,
     name: str,
     x,
-    domains: str | list[str],
-    dof_prefix: str = "soln",
+    domains: str | list[str] | None = None,
 ) -> "pv.UnstructuredGrid":
     """Build a ``pyvista.UnstructuredGrid`` for a solution field.
 
@@ -95,9 +94,6 @@ def build_grid(
     domains : str or list[str]
         The domain name(s) whose blocks are included in the grid
         (e.g. ``"SURFACE1"``).
-    dof_prefix : str, optional
-        The DOF source name used when the model was created
-        (``DegreesOfFreedom(..., name="soln")``). Defaults to ``"soln"``.
 
     Returns
     -------
@@ -109,19 +105,30 @@ def build_grid(
     geo_space = problem.geo_space.get_spaces()[0]
     geo_handler = problem.geo_dof.get_dof_handler()
 
-    # Solution: function space for `name` + its DOF handler.
-    soln_space = problem.soln_space.get_space(name)
-    soln_handler = problem.soln_dof.get_dof_handler()
+    # Try to find what the user requested to plot
+    space, handler = None, None
+    comp_name = problem.soln_space.get_component_name(name)
+    if comp_name is not None:
+        space = problem.soln_space.get_space(name)
+        handler = problem.soln_dof.get_dof_handler()
+    else:
+        comp_name = problem.geo_space.get_component_name(name)
+        if comp_name is not None:
+            space = problem.geo_space.get_space(name)
+            handler = problem.geo_dof.get_dof_handler()
+
+    if space is None:
+        raise ValueError(f"Could not find field {name}")
 
     # Physical coordinates of the geometry nodes, in geo-DOF order.
     Xgeo = np.asarray(problem.geo_dof.get_coordinates())
     dim = Xgeo.shape[1]
 
     # Global solution field values, indexed by solution DOF number.
-    u = np.asarray(x[f"{dof_prefix}.{name}"]).reshape(-1)
+    u = np.asarray(x[f"{comp_name}.{name}"]).reshape(-1)
 
     # Allocate the global point array (one point per solution DOF).
-    n_soln_dof = soln_handler.get_num_dof(soln_space)
+    n_soln_dof = handler.get_num_dof(space)
     points = np.zeros((n_soln_dof, 3), dtype=float)
 
     # PyVista accepts connectivity as {cell_type: (nelem, ndof_local)} arrays,
@@ -136,14 +143,14 @@ def build_grid(
         cell_type = problem.mesh.get_cell_type(block_id)
 
         # Solution connectivity in canonical reference-cell DOF ordering.
-        soln_conn = soln_handler.get_dof_conn(soln_space, block_id)
+        soln_conn = handler.get_dof_conn(space, block_id)
         ndof_local = soln_conn.shape[1]
 
         # Map the cell type + local DOF count to the PyVista cell type.
         pv_type = _pv_cell_type(cell_type, ndof_local)
 
         # Solution DOF reference points on this cell type.
-        soln_layout = DofLayout.make_layout(soln_space, cell_type)
+        soln_layout = DofLayout.make_layout(space, cell_type)
         ref_pts = np.asarray(soln_layout.pts, dtype=float)
 
         # Degree-1 geometry map evaluated at the solution DOF reference points.

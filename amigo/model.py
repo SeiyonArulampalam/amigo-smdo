@@ -512,7 +512,7 @@ class Model:
             comp_obj (Component): Class derived from a component object
         """
         if name in self.comp:
-            raise ValueError(f"Cannot add two components with the same name")
+            raise ValueError(f"Cannot add two components with the same name {name}")
 
         if not callable(getattr(comp_obj, "compute", None)):
             raise TypeError(

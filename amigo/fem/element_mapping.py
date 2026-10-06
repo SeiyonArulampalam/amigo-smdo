@@ -511,6 +511,13 @@ NASTRAN_ELEMENT_TYPES = {
         vertices=(0, 1, 2, 3),
         edge_nodes=((), (), (), ()),
     ),
+    "CQUADR": MeshElementType(
+        cell_type=CellType.QUADRILATERAL,
+        degree=1,
+        family=ElementFamily.LAGRANGE,
+        vertices=(0, 1, 2, 3),
+        edge_nodes=((), (), (), ()),
+    ),
     "CQUAD8": MeshElementType(
         cell_type=CellType.QUADRILATERAL,
         degree=2,

@@ -257,13 +257,24 @@ class DofHandler:
 
         raise ValueError(f"Unsupported conformity {conformity}")
 
-    def get_node_to_dof_map(self, func_space: FunctionSpace):
+    def get_dof_to_node_map(self, input: FunctionSpace | str):
         """
         Get the mapping between the ordering of the nodes parsed from the mesh
         and the dof handler ordering.
 
         x_dof = x_node[mapping]
+
+        Given the dof, the mapping gives the corresponding node
+
+        mapping[dof] = node
         """
+        if isinstance(input, str):
+            func_space = self.solution_space.get_space(input)
+        elif isinstance(input, FunctionSpace):
+            func_space = input
+        else:
+            raise TypeError(f"Expected FunctionSpace or str, got {type(input)}")
+
         ndof = self._num_dof[func_space]
         mapping = np.empty(ndof, dtype=np.int64)
 
@@ -304,7 +315,11 @@ class DofSource(am.Component):
 
 class DegreesOfFreedom:
     def __init__(
-        self, mesh: Mesh, solution_space: SolutionSpace, kind="input", name="src"
+        self,
+        mesh: Mesh,
+        solution_space: SolutionSpace,
+        kind: str | list[str] = "input",
+        prefix=None,
     ):
         """
         Allocate the degrees of freedom on the mesh
@@ -312,8 +327,11 @@ class DegreesOfFreedom:
 
         self.mesh = mesh
         self.solution_space = solution_space
-        self.kind = kind
-        self.name = name
+        if isinstance(kind, str):
+            self.kind = [kind]
+        else:
+            self.kind = kind
+        self.prefix = prefix
 
         # Create the DOF handler
         self.dof_handler = DofHandler(mesh, solution_space)
@@ -324,9 +342,10 @@ class DegreesOfFreedom:
         return self.dof_handler
 
     def add_source(self, model: am.Model):
-
         for space in self.solution_space.get_spaces():
+            comp_name = self.solution_space.get_component_name(space)
             names = self.solution_space.get_names(space)
+
             if len(names) == 0:
                 continue
 
@@ -337,11 +356,11 @@ class DegreesOfFreedom:
 
                     domain_names = self.mesh.get_domain_names()
                     input_names, data_names, con_names = [], [], []
-                    if self.kind == "input":
+                    if "input" in self.kind:
                         input_names = domain_names
-                    elif self.kind == "data":
+                    if "data" in self.kind:
                         data_names = domain_names
-                    elif self.kind == "multiplier":
+                    if "multiplier" in self.kind:
                         con_names = [f"res_{name}" for name in domain_names]
 
                     dof_src = DofSource(
@@ -351,15 +370,15 @@ class DegreesOfFreedom:
                     )
                     sub_model.add_component(data_name, 1, dof_src)
 
-                model.add_model(self.name, sub_model)
-
+                sub_model_name = comp_name
+                model.add_model(sub_model_name, sub_model)
             else:
                 input_names, data_names, con_names = [], [], []
-                if self.kind == "input":
+                if "input" in self.kind:
                     input_names = names
-                elif self.kind == "data":
+                if "data" in self.kind:
                     data_names = names
-                elif self.kind == "multiplier":
+                if "multiplier" in self.kind:
                     con_names = [f"res_{name}" for name in names]
 
                 # Create the source component
@@ -372,7 +391,7 @@ class DegreesOfFreedom:
                 ndof = self.dof_handler.get_num_dof(space)
 
                 # Add the dof from the source mesh
-                model.add_component(self.name, ndof, dof_src)
+                model.add_component(comp_name, ndof, dof_src)
 
         return
 
@@ -380,6 +399,7 @@ class DegreesOfFreedom:
         domain = self.mesh.get_domain_name(block_id)
 
         for space in self.solution_space.get_spaces():
+            comp_name = self.solution_space.get_component_name(space)
             names = self.solution_space.get_names(space)
             if len(names) == 0:
                 continue
@@ -387,39 +407,44 @@ class DegreesOfFreedom:
             if space.func_space == Space.CONST:
                 for name in names:
                     model.link(
-                        f"{self.name}.{name}.{domain}",
+                        f"{comp_name}.{name}.{domain}",
                         f"{elem_name}.{name}[:]",
                     )
 
             else:
-                if self.kind == "multiplier":
-                    con_names = [f"res_{name}" for name in names]
-                    names = con_names
+                names_list = []
+                if "input" in self.kind:
+                    names_list.append(names)
+                if "data" in self.kind:
+                    names_list.append(names)
+                if "multiplier" in self.kind:
+                    names_list.append([f"res_{name}" for name in names])
 
                 # Get the connectivity for the function space
                 conn = self.dof_handler.get_dof_conn(space, block_id)
 
-                # Link the degrees of freedom
-                if space.func_space == Space.HDIV:
-                    for name in names:
-                        model.link(
-                            f"{self.name}.{name}",
-                            f"{elem_name}.{name}[:, 0, :]",
-                            src_indices=conn,
-                        )
-                    for name in names:
-                        model.link(
-                            f"{self.name}.{name}",
-                            f"{elem_name}.{name}[:, 1, :]",
-                            src_indices=conn,
-                        )
-                else:
-                    for name in names:
-                        model.link(
-                            f"{self.name}.{name}",
-                            f"{elem_name}.{name}",
-                            src_indices=conn,
-                        )
+                for var_names in names_list:
+                    # Link the degrees of freedom
+                    if space.func_space == Space.HDIV:
+                        for name in var_names:
+                            model.link(
+                                f"{comp_name}.{name}",
+                                f"{elem_name}.{name}[:, 0, :]",
+                                src_indices=conn,
+                            )
+                        for name in var_names:
+                            model.link(
+                                f"{comp_name}.{name}",
+                                f"{elem_name}.{name}[:, 1, :]",
+                                src_indices=conn,
+                            )
+                    else:
+                        for name in var_names:
+                            model.link(
+                                f"{comp_name}.{name}",
+                                f"{elem_name}.{name}",
+                                src_indices=conn,
+                            )
 
         return
 
@@ -429,12 +454,12 @@ class DegreesOfFreedom:
         """
 
         geo_space = self.solution_space.get_spaces()[0]
-        node_to_dof = self.dof_handler.get_node_to_dof_map(geo_space)
+        dof_to_node = self.dof_handler.get_dof_to_node_map(geo_space)
 
-        if np.any(node_to_dof < 0):
+        if np.any(dof_to_node < 0):
             raise ValueError(
                 "Some geometry DOFs are not associated with a mesh vertex; "
                 "setting nodal coordinates requires a degree-1 H1 geometry space."
             )
 
-        return self.mesh.X[node_to_dof]
+        return self.mesh.X[dof_to_node]

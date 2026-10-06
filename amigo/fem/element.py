@@ -27,7 +27,8 @@ class FiniteElement(am.Component):
         # From BasisCollection
         self.soln_basis.add_declarations(self)
         self.geo_basis.add_declarations(self)
-        self.data_basis.add_declarations(self)
+        if self.data_basis is not None:
+            self.data_basis.add_declarations(self)
 
         # Add constraint declarations
         if self.test_basis is not None:
@@ -46,13 +47,17 @@ class FiniteElement(am.Component):
         if self.test_basis is not None:
             test_xi = self.test_basis.eval(self, quad_point)
         soln_xi = self.soln_basis.eval(self, quad_point)
-        data_xi = self.data_basis.eval(self, quad_point)
+        data_xi = None
+        if self.data_basis is not None:
+            self.data_basis.eval(self, quad_point)
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
         detJ, J, Jinv = self.geo_basis.compute_transform(geo)
         soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
+        data_phys = None
+        if self.data_basis is not None:
+            data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         if self.test_basis is not None:
             # Transform the test space derivatives into the physical space
@@ -93,7 +98,8 @@ class FiniteElementOutput(am.Component):
         # From BasisCollection
         self.soln_basis.add_declarations(self)
         self.geo_basis.add_declarations(self)
-        self.data_basis.add_declarations(self)
+        if self.data_basis is not None:
+            self.data_basis.add_declarations(self)
 
         # add the output declarations, assuming scalar functions
         for name in self.output_names:
@@ -109,13 +115,17 @@ class FiniteElementOutput(am.Component):
 
         # Evaluate the solution fields/data fields (u)
         soln_xi = self.soln_basis.eval(self, quad_point)
-        data_xi = self.data_basis.eval(self, quad_point)
+        data_xi = None
+        if self.data_basis is not None:
+            data_xi = self.data_basis.eval(self, quad_point)
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
         detJ, J, Jinv = self.geo_basis.compute_transform(geo)
         soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
+        data_phys = None
+        if self.data_basis is not None:
+            data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         # Add the contributions directly to the Lagrangian
         outputs = self.output_function(soln_phys, data=data_phys, geo=geo)
@@ -184,13 +194,17 @@ class MITCElement(FiniteElement):
 
         # Evaluate the solution fields/data fields (u)
         soln_xi = self.soln_basis.eval(self, quad_point)
-        data_xi = self.data_basis.eval(self, quad_point)
+        data_xi = None
+        if self.data_basis is not None:
+            data_xi = self.data_basis.eval(self, quad_point)
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
         detJ, J, Jinv = self.geo_basis.compute_transform(geo)
         soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
+        data_phys = None
+        if self.data_basis is not None:
+            data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         # Add to the physics
         soln_phys.update(
@@ -245,13 +259,17 @@ class MITCElementOutput(am.Component):
 
         # Evaluate the solution fields/data fields (u)
         soln_xi = self.soln_basis.eval(self, quad_point)
-        data_xi = self.data_basis.eval(self, quad_point)
+        data_xi = None
+        if self.data_basis is not None:
+            data_xi = self.data_basis.eval(self, quad_point)
         geo = self.geo_basis.eval(self, quad_point)
 
         # Perform the mapping from computational to physical coordinates (u)
         detJ, J, Jinv = self.geo_basis.compute_transform(geo)
         soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
-        data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
+        data_phys = None
+        if self.data_basis is not None:
+            data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
 
         # Add to the physics
         soln_phys.update(

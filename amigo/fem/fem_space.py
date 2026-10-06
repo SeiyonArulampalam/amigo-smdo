@@ -33,9 +33,16 @@ class SolutionSpace:
         }
 
         self.fields = []  # (name, FunctionSpace) in declaration order
-        self.names = {}  # FunctionSpace -> [names]
+        self.names = {}  # FunctionSpace -> list(solution names)
+        self.comp_names = {}  # FunctionSpace -> comp_name
 
-        for names, space in mapping.items():
+        for comp_name in mapping:
+            if len(mapping[comp_name]) == 0:
+                raise ValueError(f"Empty specification for {comp_name}")
+            elif len(mapping[comp_name]) > 1:
+                raise ValueError(f"Overspecification for {comp_name}")
+
+            [(names, space)] = mapping[comp_name].items()
             if isinstance(names, str):
                 names = (names,)
             if isinstance(space, Space):
@@ -49,17 +56,25 @@ class SolutionSpace:
             elif not isinstance(space, FunctionSpace):
                 raise TypeError(f"Expected FunctionSpace or str, got {type(space)}")
 
+            self.comp_names[space] = comp_name
             self.names.setdefault(space, []).extend(names)
             self.fields.extend((name, space) for name in names)
 
     def get_spaces(self):
         return list(self.names)
 
-    def get_names(self, space):
+    def get_names(self, space: FunctionSpace):
         return self.names.get(space, [])
 
-    def get_space(self, name):
+    def get_component_name(self, input: FunctionSpace | str):
+        """Get the component name from the function space or variable name"""
+        if isinstance(input, str):
+            return self.comp_names.get(self.get_space(input), None)
+        else:
+            return self.comp_names.get(input, None)
+
+    def get_space(self, name: str):
         for field_name, space in self.fields:
             if field_name == name:
                 return space
-        raise KeyError(f"Unknown field '{name}'")
+        return None

@@ -41,6 +41,9 @@ class InpParser:
         # Node sets from the INP
         self.node_sets = {}
 
+        # Dirichlet bcs - set but not used for INP
+        self.dirichlet_bcs = {}
+
         return
 
     def _read_file(self, filename):
@@ -221,160 +224,178 @@ class InpParser:
     def get_node_sets(self):
         return self.node_sets
 
-
-# class BdfParser:
-#     def __init__(self, filename: str, debug: bool = False):
-#         try:
-#             import pyNastran.bdf.bdf as pn
-
-#             self.pn = pn
-#         except:
-#             raise RuntimeError("Must install pyNastran to use .bdf files")
-
-#         self.scan_bdf(filename)
-
-#     def scan_bdf(self, filename: str, debug: bool = False):
-#         info = self.pn.read_bdf(filename, validate=False, xref=False, debug=debug)
-
-#         info.missing_properties = False
-#         for element_id in info.elements:
-#             element = info.elements[element_id]
-#             if element.pid not in info.property_ids:
-#                 # If no material properties were found,
-#                 # add dummy properties and materials
-#                 matID = 1
-#                 E = 70.0
-#                 G = 35.0
-#                 nu = 0.3
-#                 info.add_mat1(matID, E, G, nu)
-#                 info.add_pbar(element.pid, matID)
-#                 # Warn the user that the property card is missing
-#                 # and should not be read in using pytacs elemCallBackFromBDF method
-#                 info.missing_properties = True
-
-#         self.property_to_elements = info.get_property_id_to_element_ids_map()
-
-#         pid_list = list(self.property_to_elements.keys())
-#         for pid in pid_list:
-#             # If there are no elements referencing this property card, remove it
-#             if len(self.property_to_elements[pid]) == 0:
-#                 info.properties.pop(pid)
-#                 self.property_to_elements.pop(pid)
-
-#         # Map to contiguous ordering of nodes, components and elements
-#         self.node_map = dict(zip(info.node_ids, range(info.nnodes)))
-#         self.property_map = dict(zip(info.property_ids, range(info.nproperties)))
-#         self.elem_map = dict(zip(info.element_ids, range(info.nelements)))
-
-#         # Try to get the node x,y,z locations from bdf file
-#         try:
-#             self.Xpts = info.get_xyz_in_coord(fdtype=float, sort_ids=False)
-
-#         # If this fails, the file may reference multiple coordinate systems
-#         # and will have to be cross-referenced to work
-#         except:
-#             info.cross_reference()
-#             info.is_xrefed = True
-#             self.Xpts = info.get_xyz_in_coord(fdtype=float, sort_ids=False)
-
-#         # Create the element connectivity
-#         self.elem_conn = {}
-#         for pid in self.property_to_elements:
-#             element_ids = self.property_to_elements[pid]
-
-#             elset = str(self.property_map[pid])
-#             if not elset in self.elem_conn:
-#                 self.elem_conn[elset] = {}
-
-#             for id in element_ids:
-#                 # Get the element
-#                 element = info.elements[id]
-#                 element_type = element.type.upper()
-
-#                 # Map the id to the contiguous ordering
-#                 elem_id = self.elem_map[id]
-
-#                 # Check if this type of element been used
-#                 if not element_type in self.elem_conn[elset]:
-#                     self.elem_conn[elset][element_type] = {}
-
-#                 nodes = [self.node_map[n] for n in element.nodes]
-#                 self.elem_conn[elset][element_type][elem_id] = nodes
-
-#         self.info = info
-
-#     def get_nodes(self):
-#         return self.Xpts
-
-#     def get_domains(self):
-#         names = {}
-#         for elset in self.elem_conn:
-#             names[elset] = []
-#             for elem_type in self.elem_conn[elset]:
-#                 names[elset].append(elem_type)
-
-#         return names
-
-#     def get_conn(self, elset, elem_type):
-#         conn = self.elem_conn[elset.upper()][elem_type.upper()]
-#         return np.array([conn[k] for k in sorted(conn.keys())], dtype=int)
+    def get_dirichlet_bcs(self):
+        return self.dirichlet_bcs
 
 
 class BdfParser:
     def __init__(self):
-        from pyNastran.bdf.bdf import BDF
+        try:
+            import pyNastran.bdf.bdf as pn
 
-        self.BDF = BDF
+            self.pn = pn
+        except:
+            raise RuntimeError("Must install pyNastran to use .bdf files")
 
-        self.X = {}
-        self.elem_conn = {}
+        self.X = None
+        self.element_blocks = []
+        self.node_sets = {}
 
-    def parse_bdf(self, filename):
-        model = self.BDF()
-        model.read_bdf(filename)
+        return
 
-        # --------------------------------------------------------
-        # Nodes
-        # --------------------------------------------------------
+    def parse(self, filename: str, debug: bool = False):
+        model = self.pn.read_bdf(filename, validate=False, xref=False, debug=debug)
 
+        model.is_xrefed = False
+
+        # Add dummy property cards
+        model.missing_properties = False
+        for elem_id in model.elements:
+            element = model.elements[elem_id]
+            if element.pid not in model.property_ids:
+                matID = 1
+                E = 70.0
+                G = 35.0
+                nu = 0.3
+                model.add_mat1(matID, E, G, nu)
+                model.add_pbar(element.pid, matID)
+
+                # Set a warning flag
+                model.missing_properties = True
+
+                if debug:
+                    print(
+                        f"Element ID {elem_id} references undefined property ID {element.pid} in bdf file. "
+                        "A user-defined elemCallBack function will need to be provided."
+                    )
+
+        # Set the node locations
         node_ids = sorted(model.nodes)
-
         node_map = {nid: i for i, nid in enumerate(node_ids)}
+        self.X = np.array(
+            [model.nodes[nid].get_position() for nid in node_ids], dtype=float
+        )
 
-        for nid in node_ids:
-            node = model.nodes[nid]
+        # Populate list entries with default values
+        domain_names = {}
+        for p_id in model.property_ids:
+            # Check if there is a Femap/HyperMesh/Patran label for this component
+            comment = model.properties[p_id].comment
 
-            # Position in the global coordinate system
-            xyz = node.get_position()
+            # Femap format
+            if "$ Femap Property" in comment:
+                # Pick off last word from comment, this is the name
+                domain_names[p_id] = comment.split()[-1]
+            # HyperMesh format
+            elif "$HMNAME PROP" in comment:
+                # Locate property name line
+                loc = comment.find("HMNAME PROP")
+                comp_line = comment[loc:]
+                # The component name is between double quotes
+                domain_names[p_id] = comp_line.split('"')[1]
+            # Patran format
+            elif "$ Elements and Element Properties for region" in comment:
+                # The component name is after the colon
+                domain_names[p_id] = comment.split(":")[1]
+            else:  # No format, default component name
+                domain_names[p_id] = None
 
-            self.X[node_map[nid]] = np.asarray(xyz)
+        for e_id, elem in model.elements.items():
+            if "Shell element data for family" in elem.comment:
+                p_id = elem.Pid()
+                if domain_names[p_id] is None:
+                    domain_names[p_id] = elem.comment.split()[-1]
 
-        # --------------------------------------------------------
+        for p_id in model.property_ids:
+            if domain_names[p_id] is None:
+                domain_names[p_id] = f"PID_{p_id}"
+
         # Elements
-        # --------------------------------------------------------
+        element_conn = {}
+        element_ids = {}
+        element_card_type = {}
 
-        for eid, elem in model.elements.items():
-
+        # Parse each element and add to pid/element type
+        for e_id, elem in model.elements.items():
+            p_id = elem.Pid()
             card_type = elem.type
             node_ids = [nid for nid in elem.node_ids if nid is not None]
 
-            elem_type = get_nastran_element_type(
-                card_type,
-                len(node_ids),
-            )
-
+            element_type = get_nastran_element_type(card_type, len(node_ids))
             conn = [node_map[nid] for nid in node_ids]
 
-            # Property ID is a reasonable default "domain"
-            pid = elem.Pid()
+            key = (p_id, element_type)
+            if key in element_conn:
+                element_conn[key].append(conn)
+                element_ids[key].append(e_id)
+            else:
+                element_conn[key] = [conn]
+                element_ids[key] = [e_id]
+            element_card_type[key] = card_type
 
-            domain = f"PID_{pid}"
+        # Create the element blocks
+        for p_id, element_type in element_conn:
+            key = (p_id, element_type)
+            conn = np.array(element_conn[key], dtype=np.int64)
+            elem_ids = np.array(element_ids[key], dtype=np.int64)
+            card_type = element_card_type[key]
 
-            key = (
-                domain,
-                elem_type.cell_type,
-                elem_type.degree,
-                elem_type.family,
+            block = ElementBlock(
+                domain=domain_names[p_id],
+                cell_type=element_type.cell_type,
+                degree=element_type.degree,
+                family=element_type.family,
+                element_type=element_type,
+                connectivity=conn,
+                element_ids=elem_ids,
+                source_type=card_type,
             )
+            self.element_blocks.append(block)
 
-            self.elem_conn.setdefault(key, {})[eid] = conn
+        # Parse the boundary conditions
+        self.dirichlet_bcs = {}
+
+        for spc_id in model.spcs:
+            for spc in model.spcs[spc_id]:
+                # Loop through every node specifed in this spc and record bc info
+                for j, node in enumerate(spc.nodes):
+                    if node not in model.node_ids:
+                        print(
+                            f"Node ID {node} (Nastran ordering) is referenced by an SPC,  "
+                            "but the node was not defined in the BDF file. Skipping SPC."
+                        )
+                        continue
+
+                    # Convert the node number
+                    inode = node_map[node]
+
+                    bc = {}
+                    for dof in range(6):
+                        if spc.type == "SPC":
+                            comp = spc.components[j]
+                            val = spc.enforced[j]
+                        else:  # SPC1
+                            comp = spc.components
+                            val = 0.0
+
+                        if f"{dof + 1}" in comp:
+                            bc[dof] = val
+
+                    if inode in self.dirichlet_bcs:
+                        self.dirichlet_bcs[inode].update(bc)
+                    else:
+                        self.dirichlet_bcs[inode] = bc
+
+        return
+
+    def get_nodes(self):
+        return self.X
+
+    def get_element_blocks(self):
+        return self.element_blocks
+
+    def get_node_sets(self):
+        return self.node_sets
+
+    def get_dirichlet_bcs(self):
+        return self.dirichlet_bcs

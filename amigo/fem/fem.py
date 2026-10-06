@@ -13,8 +13,8 @@ class Problem:
         self,
         mesh,
         soln_space: SolutionSpace,
-        data_space: SolutionSpace,
         geo_space: SolutionSpace,
+        data_space: SolutionSpace | None = None,
         integrand_map=None,
         integrand_formulation="potential",
         output_map=None,
@@ -46,35 +46,18 @@ class Problem:
         self.element_objs = element_objs
         self.output_objs = output_objs
 
-        # Allocate constraints for the weak formulation
-        self.test_dof = None
+        # Set up constraints to be linked
+        kind = ["input"]
         if self.integrand_formulation == "weak":
-            self.test_dof = DegreesOfFreedom(
-                self.mesh,
-                self.soln_space,
-                kind="multiplier",
-                name="multiplier",
-            )
+            kind.append("multiplier")
 
         # Initialize Dofs
-        self.soln_dof = DegreesOfFreedom(
-            self.mesh,
-            self.soln_space,
-            kind="input",
-            name="soln",
-        )
-        self.geo_dof = DegreesOfFreedom(
-            self.mesh,
-            self.geo_space,
-            kind="data",
-            name="geo",
-        )
-        self.data_dof = DegreesOfFreedom(
-            self.mesh,
-            self.data_space,
-            kind="data",
-            name="data",
-        )
+        self.soln_dof = DegreesOfFreedom(self.mesh, self.soln_space, kind=kind)
+        self.geo_dof = DegreesOfFreedom(self.mesh, self.geo_space, kind="data")
+        if self.data_space is not None:
+            self.data_dof = DegreesOfFreedom(self.mesh, self.data_space, kind="data")
+        else:
+            self.data_dof = None
 
         # Build the boundary conditions
         self.boundary_conditions = []
@@ -91,7 +74,7 @@ class Problem:
         return
 
     def _create_element_objs(self):
-
+        # Create the element objects
         for integrand_name in self.integrand_map:
             targets = self.integrand_map[integrand_name]["target"]
             integrand = self.integrand_map[integrand_name]["integrand"]
@@ -110,12 +93,14 @@ class Problem:
 
                 # Get the basis objects for the element type
                 test_basis = None
-                if self.test_dof is not None:
+                if self.integrand_formulation == "weak":
                     test_basis = make_basis(self.soln_space, ctype, kind="multiplier")
 
                 soln_basis = make_basis(self.soln_space, ctype, kind="input")
                 geo_basis = make_basis(self.geo_space, ctype, kind="data")
-                data_basis = make_basis(self.data_space, ctype, kind="data")
+                data_basis = None
+                if self.data_space is not None:
+                    data_basis = make_basis(self.data_space, ctype, kind="data")
 
                 # reduced integration option if rule is given
                 if integration_rule == ["reduced"]:
@@ -162,7 +147,9 @@ class Problem:
                 # Get the basis objects for the element type
                 soln_basis = make_basis(self.soln_space, ctype, kind="input")
                 geo_basis = make_basis(self.geo_space, ctype, kind="data")
-                data_basis = make_basis(self.data_space, ctype, kind="data")
+                data_basis = None
+                if self.data_space is not None:
+                    data_basis = make_basis(self.data_space, ctype, kind="data")
 
                 # Create the quadrature instance
                 quadrature = make_quadrature(self.soln_space, ctype)
@@ -187,11 +174,10 @@ class Problem:
         """Create and link the Amigo model"""
         model = am.Model(module_name)
 
-        if self.test_dof is not None:
-            self.test_dof.add_source(model)
         self.soln_dof.add_source(model)
-        self.data_dof.add_source(model)
         self.geo_dof.add_source(model)
+        if self.data_dof is not None:
+            self.data_dof.add_source(model)
 
         # Figure out which elements need to be created
         self._create_element_objs()
@@ -216,12 +202,9 @@ class Problem:
 
                 # Link all the element dof to the component
                 self.soln_dof.link_dof(model, block_id, comp_name)
-                self.data_dof.link_dof(model, block_id, comp_name)
                 self.geo_dof.link_dof(model, block_id, comp_name)
-
-                # Link the constraints (if using the weak formulation)
-                if self.test_dof is not None:
-                    self.test_dof.link_dof(model, block_id, comp_name)
+                if self.data_dof is not None:
+                    self.data_dof.link_dof(model, block_id, comp_name)
 
                 # Set the element signs if relevant
                 for space in self.soln_space.get_spaces():
@@ -264,12 +247,9 @@ class Problem:
 
                 # Link all the element dof to the component
                 self.soln_dof.link_dof(model, block_id, comp_name)
-                self.data_dof.link_dof(model, block_id, comp_name)
                 self.geo_dof.link_dof(model, block_id, comp_name)
-
-                # Link the outputs
-                for name in output_names:
-                    model.link(f"{comp_name}.{name}", f"outputs.{name}[0]")
+                if self.data_dof is not None:
+                    self.data_dof.link_dof(model, block_id, comp_name)
 
         # Set the node locations directly
         spatial_dim = self.mesh.get_spatial_dim()
