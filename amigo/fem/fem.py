@@ -245,6 +245,10 @@ class Problem:
                 if self.data_dof is not None:
                     self.data_dof.link_dof(model, block_id, comp_name)
 
+                # Link the outputs
+                for name in output_names:
+                    model.link(f"{comp_name}.{name}", f"outputs.{name}[0]")
+
         # Set the node locations directly
         spatial_dim = self.mesh.get_spatial_dim()
         spatial_names = ["x", "y", "z"][:spatial_dim]
