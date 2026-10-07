@@ -111,12 +111,14 @@ def local_normal(soln, data=None, geo=None):
 def set_normals(model):
     """Set the output normals in the model"""
     x = model.create_vector()
-    output = model.create_output_vector()
 
+    # Compute the normals as an output
+    output = model.create_output_vector()
     model.compute_output(x, output)
 
+    # Set the computed normals, with weight vector - ignore that
+    # these are no longer perfectly normal because of the weighted averaging
     data = model.get_data_vector()
-
     data["normals.nx"] = output["out_normals.nx0"] / output["out_normals.weight"]
     data["normals.ny"] = output["out_normals.ny0"] / output["out_normals.weight"]
     data["normals.nz"] = output["out_normals.nz0"] / output["out_normals.weight"]
