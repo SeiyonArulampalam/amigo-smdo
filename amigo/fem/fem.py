@@ -234,8 +234,8 @@ class Problem:
 
         # Make a list of all of the outputs
         all_outputs = []
-        for out_name in self.output_map:
-            for name in self.output_map[out_name]["names"]:
+        for out_name in output_map:
+            for name in output_map[out_name]["names"]:
                 if not (name in all_outputs):
                     all_outputs.append(name)
 
@@ -244,9 +244,9 @@ class Problem:
 
         self._create_output_objs(output_map, output_objs)
 
-        for out_name in self.output_map:
-            targets = self.output_map[out_name]["target"]
-            output_names = self.output_map[out_name]["names"]
+        for out_name in output_map:
+            targets = output_map[out_name]["target"]
+            output_names = output_map[out_name]["names"]
             block_ids = self.mesh.get_block_ids(targets)
 
             for block_id in block_ids:
