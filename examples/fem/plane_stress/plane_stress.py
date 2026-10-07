@@ -12,53 +12,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 
-import matplotlib.tri as tri
-
-
-def plot(
-    mesh,
-    usol,
-    ax=None,
-    nlevels=30,
-    cmap="coolwarm",
-    title=None,
-    x_offset=0.0,
-    y_offset=0.0,
-    min_level=None,
-    max_level=None,
-):
-    if ax is None:
-        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
-
-    domains = mesh.get_domains()
-    x = mesh.X[:, 0] + x_offset
-    y = mesh.X[:, 1] + y_offset
-
-    # Get the connectivity
-    conn = mesh.get_vertex_conn("SURFACE1", CellType.TRIANGLE)
-    triangles = tri.Triangulation(x, y, conn)
-
-    uvals = usol[: len(x)]
-
-    if min_level == None or max_level == None:
-        min_level = np.min(uvals)
-        max_level = np.max(uvals)
-
-    levels = np.linspace(min_level, max_level, nlevels)
-
-    # Set the contour plot
-    ax.tricontourf(triangles, uvals, levels=levels, cmap=cmap)
-    ax.tricontour(
-        triangles, uvals, levels=levels, colors="k", linewidths=0.3, alpha=0.5
-    )
-
-    if title is not None:
-        ax.set_title(title)
-
-    ax.set_aspect("equal")
-
-    return ax
-
 
 def potential_plane_stress(soln, data=None, geo=None):
     """Strain energy density (integrand of TPE equation)"""
@@ -121,15 +74,13 @@ bc_map = {
     },
 }
 
-mesh = Mesh("plate.inp")
-
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--build", dest="build", action="store_true", default=False, help="Enable building"
 )
-
 args = parser.parse_args()
 
+mesh = Mesh("plate.inp")
 problem = Problem(
     mesh,
     soln_space,
@@ -157,7 +108,7 @@ model.eval_hessian(x, mat)
 
 # Solve the equations
 print("Solving...")
-chol = am.SparseLDL(mat, ustab=0.1, solver_type=am.SolverType.CHOLESKY)
+chol = am.SparseLDL(mat, solver_type=am.SolverType.CHOLESKY)
 flag = chol.factor()
 
 # Solve the equations

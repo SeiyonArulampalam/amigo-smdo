@@ -394,7 +394,10 @@ class DegreesOfFreedom:
             if len(names) == 0:
                 continue
 
-            if space.func_space == Space.CONST:
+            if (
+                space.func_space == Space.CONST
+                and space.conformity == Conformity.COMPONENT
+            ):
                 # Create a sub-model for each data set
                 sub_model = am.Model()
                 for data_name in names:
@@ -443,7 +446,10 @@ class DegreesOfFreedom:
 
                 # Get the number of degrees of freedom associated with the
                 # associated space
-                ndof = self.dof_handler.get_num_dof(space)
+                if space.func_space == Space.CONST:
+                    ndof = 1
+                else:
+                    ndof = self.dof_handler.get_num_dof(space)
 
                 # Add the dof from the source mesh
                 model.add_component(comp_name, ndof, dof_src)
@@ -459,7 +465,10 @@ class DegreesOfFreedom:
             if len(names) == 0:
                 continue
 
-            if space.func_space == Space.CONST:
+            if (
+                space.func_space == Space.CONST
+                and space.conformity == Conformity.COMPONENT
+            ):
                 for name in names:
                     model.link(
                         f"{comp_name}.{name}.{domain}",
@@ -475,8 +484,12 @@ class DegreesOfFreedom:
                 if "multiplier" in self.kind:
                     names_list.append([f"res_{name}" for name in names])
 
-                # Get the connectivity for the function space
-                conn = self.dof_handler.get_dof_conn(space, block_id)
+                if space.func_space == Space.CONST:
+                    # Fake the connectivity for the constant case
+                    conn = [0]
+                else:
+                    # Get the connectivity for the function space
+                    conn = self.dof_handler.get_dof_conn(space, block_id)
 
                 for var_names in names_list:
                     # Link the degrees of freedom

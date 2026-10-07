@@ -1,8 +1,16 @@
 import numpy as np
-from amigo.fem import dot_product, Problem, Mesh, basis, CustomOrderedBCs, build_grid
+from amigo.fem import (
+    dot_product,
+    Problem,
+    Mesh,
+    basis,
+    CustomOrderedBCs,
+    build_grid,
+    FunctionSpace,
+    Space,
+    Conformity,
+)
 import amigo as am
-from scipy.sparse.linalg import spsolve
-import matplotlib.pyplot as plt
 import argparse
 
 
@@ -81,8 +89,9 @@ integrand_map = {
 }
 
 # Initialize the spaces (same for all domains)
+const = FunctionSpace(func_space=Space.CONST, conformity=Conformity.COMPONENT)
 soln_space = basis.SolutionSpace({"u": "H1"})
-data_space = basis.SolutionSpace({"Jz": "const"})
+data_space = basis.SolutionSpace({"Jz": const})
 geo_space = basis.SolutionSpace({"x": "H1", "y": "H1"})
 
 # Define the global amigo model

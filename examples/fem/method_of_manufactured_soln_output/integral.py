@@ -1,8 +1,14 @@
 import numpy as np
-from amigo.fem import dot_product, Problem, Mesh, basis
 import amigo as am
-from scipy.sparse.linalg import spsolve
-import matplotlib.pyplot as plt
+from amigo.fem import (
+    dot_product,
+    Problem,
+    Mesh,
+    basis,
+    FunctionSpace,
+    Space,
+    Conformity,
+)
 import argparse
 
 
@@ -76,8 +82,9 @@ output_map = {
 }
 
 # Initialize the spaces (same for all domains)
+const = FunctionSpace(func_space=Space.CONST, conformity=Conformity.COMPONENT)
 soln_space = basis.SolutionSpace({"soln": {"u": "H1"}})
-data_space = basis.SolutionSpace({"data": {"Jz": "const"}})
+data_space = basis.SolutionSpace({"data": {"Jz": const}})
 geo_space = basis.SolutionSpace({"geo": {("x", "y"): "H1"}})
 
 # Define the global amigo model
@@ -100,7 +107,7 @@ for mesh_name, mesh in meshes.items():
 # Build the model
 if args.build:
     model.build_module()
-model.initialize(order_type=am.OrderingType.NESTED_DISSECTION)
+model.initialize()
 
 # Set the problem data
 data = model.get_data_vector()

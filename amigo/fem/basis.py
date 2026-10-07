@@ -96,7 +96,7 @@ class ConstantBasis(Basis):
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
-        for name in orig:
+        for name in self.names:
             value = orig[name].value
             soln[name] = ConstValue(value=value)
         return soln
@@ -127,7 +127,7 @@ class LagrangeBasis1D(Basis):
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
-        for name in orig:
+        for name in self.names:
             value = orig[name].value
             grad = orig[name].grad
             soln[name] = H1Value(value=value, grad=[Jinv * grad[0]])
@@ -211,7 +211,7 @@ class LagrangeBasis2D(Basis):
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
-        for name in orig:
+        for name in self.names:
             value = orig[name].value
             grad = orig[name].grad
             soln[name] = H1Value(
@@ -336,7 +336,7 @@ class RTBasis2D(Basis):
 
     def transform(self, detJ, J, Jinv, orig):
         soln = {}
-        for name in orig:
+        for name in self.names:
             vec = orig[name].vec
             div = orig[name].div
             vx = (J[0][0] * vec[0] + J[0][1] * vec[1]) / detJ
