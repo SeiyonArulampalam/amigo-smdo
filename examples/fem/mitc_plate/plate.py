@@ -10,6 +10,7 @@ from amigo.fem import (
     CellType,
     make_basis,
     make_quadrature,
+    build_grid,
 )
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
@@ -44,7 +45,7 @@ class MITC4PlateTying(MITCTyingStrain):
 
         raise ValueError("Tying point index out of range")
 
-    def interp_and_transform(self, pt, Jinv, e):
+    def interp_and_transform(self, pt, detJ, J, Jinv, e):
         # Interpolate the tensorial components of the tying strains
         g23 = 0.5 * ((1.0 - pt[0]) * e[0] + (1.0 + pt[0]) * e[1])
         g13 = 0.5 * ((1.0 - pt[1]) * e[2] + (1.0 + pt[1]) * e[3])
@@ -105,9 +106,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-soln_space = SolutionSpace({"w": "H1", "tx": "H1", "ty": "H1"})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
-data_space = SolutionSpace({})
+soln_space = SolutionSpace({"soln": {("w", "tx", "ty"): "H1"}})
+geo_space = SolutionSpace({"geo": {("x", "y"): "H1"}})
 
 integrand_map = {
     "plate": {
@@ -130,7 +130,7 @@ mesh = Mesh("plate.inp")
 ctype = CellType.QUADRILATERAL
 soln_basis = make_basis(soln_space, ctype, kind="input")
 geo_basis = make_basis(geo_space, ctype, kind="data")
-data_basis = make_basis(data_space, ctype, kind="data")
+data_basis = None
 quadrature = make_quadrature(soln_space, ctype)
 mitc = MITC4PlateTying()
 
@@ -146,7 +146,6 @@ element_objs = {("plate", ctype): quad_elem}
 problem = Problem(
     mesh,
     soln_space,
-    data_space,
     geo_space,
     integrand_map=integrand_map,
     bc_map=bc_map,
@@ -248,14 +247,6 @@ else:
 
 print(f"Factor time... {tfactor:.6f} seconds")
 
-# print("Plotting...")
-# w = x["soln.w"]
-# tx = x["soln.tx"]
-# ty = x["soln.ty"]
-
-# fig, ax = plt.subplots(1, 3, figsize=(8, 3))
-# for index, soln in enumerate([w, tx, ty]):
-#     mesh.plot(soln, ax=ax[index])
-
-# plt.savefig("plate_solution.png")
-# plt.show()
+print("Plotting...")
+grid = build_grid(problem, "w", x)
+grid.plot(scalars="w", cmap="coolwarm", show_edges=True)

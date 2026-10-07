@@ -15,8 +15,8 @@ def potential(soln, data=None, geo=None):
     return 0.5 * (alpha * (u[0] ** 2 + u[1] ** 2) + div**2 - 2 * f * div)
 
 
-soln_space = SolutionSpace({"u": "H(div)"})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
+soln_space = SolutionSpace({"soln": {"u": "H(div)"}})
+geo_space = SolutionSpace({"geo": {("x", "y"): "H1"}})
 data_space = SolutionSpace({})
 
 integrand_map = {
@@ -47,8 +47,8 @@ args = parser.parse_args()
 problem = Problem(
     mesh,
     soln_space,
-    data_space,
     geo_space,
+    data_space,
     bc_map=bc_map,
     integrand_map=integrand_map,
 )
@@ -75,8 +75,5 @@ chol = am.SparseLDL(mat, ustab=0.1, solver_type=am.SolverType.LDL)
 flag = chol.factor()
 
 # Solve the equations
-x[:] = g[:]
+x[:] = -g[:]
 chol.solve(x.get_vector())
-
-print(g[:])
-print(x[:])
