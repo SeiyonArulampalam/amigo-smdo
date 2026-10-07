@@ -1,6 +1,13 @@
-from amigo.fem import Mesh, Problem, CellType, Space, FunctionSpace, SolutionSpace
+from amigo.fem import (
+    Mesh,
+    Problem,
+    CellType,
+    Space,
+    FunctionSpace,
+    SolutionSpace,
+    build_grid,
+)
 import amigo as am
-from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
@@ -91,9 +98,9 @@ def potential_traction(soln, data=None, geo=None):
 
 # Two displacement DOFs per node
 H1 = FunctionSpace(func_space=Space.H1, degree=1)
-soln_space = SolutionSpace({"u": H1, "v": H1})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
-data_space = SolutionSpace({})  # empty for now
+soln_space = SolutionSpace({"soln": {("u", "v"): H1}})
+geo_space = SolutionSpace({"geo": {("x", "y"): H1}})
+data_space = SolutionSpace({})
 
 integrand_map = {
     "plane_stress": {
@@ -126,8 +133,8 @@ args = parser.parse_args()
 problem = Problem(
     mesh,
     soln_space,
-    data_space,
     geo_space,
+    data_space,
     integrand_map=integrand_map,
     bc_map=bc_map,
 )
@@ -161,16 +168,5 @@ u = x["soln.u"]
 v = x["soln.v"]
 
 # Plot the solution
-# problem.plot(u, ax=ax)
-
-# Extract displacement fields
-# u = problem.field_to_nodes(u)
-# v = problem.field_to_nodes(v)
-
-# fig, ax = plt.subplots(nrows=2)
-# plot(mesh, u, ax=ax[0])
-# plot(mesh, v, ax=ax[1])
-# plt.show()
-
-problem.visualize(x, "soln.u", "SURFACE1")
-# problem.visualize(x)
+grid = build_grid(problem, "u", x)
+grid.plot(scalars="u", cmap="coolwarm", show_edges=True)
