@@ -62,23 +62,30 @@ class Basis:
         self.kind = kind
 
         if not (
-            self.kind == "input" or self.kind == "data" or self.kind == "multiplier"
+            self.kind == "input"
+            or self.kind == "data"
+            or self.kind == "multiplier"
+            or self.kind == "output"
         ):
             raise ValueError(f"{self.kind} not recognized")
 
     def add_declarations(self, comp):
         """Add the declarations to the component"""
 
-        nnodes = self.layout.ndof
+        ndof = self.layout.ndof
         if self.kind == "input":
             for name in self.names:
-                comp.add_input(name, shape=(nnodes,))
+                comp.add_input(name, shape=(ndof,))
         elif self.kind == "data":
             for name in self.names:
-                comp.add_data(name, shape=(nnodes,))
+                comp.add_data(name, shape=(ndof,))
         elif self.kind == "multiplier":
             for name in self.names:
-                comp.add_constraint(f"res_{name}", shape=(nnodes,))
+                comp.add_constraint(f"res_{name}", shape=(ndof,))
+        elif self.kind == "output":
+            for name in self.names:
+                for dim in range(ndof):
+                    comp.add_output(f"{name}{dim}")
 
 
 class ConstantBasis(Basis):

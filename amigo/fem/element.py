@@ -138,6 +138,67 @@ class FiniteElementOutput(am.Component):
         return
 
 
+class FiniteElementFieldOutput(am.Component):
+    def __init__(
+        self,
+        name,
+        soln_basis,
+        data_basis,
+        geo_basis,
+        output_basis,
+        output_function,
+    ):
+        super().__init__(name=name)
+
+        self.soln_basis = soln_basis
+        self.data_basis = data_basis
+        self.geo_basis = geo_basis
+        self.output_basis = output_basis
+        self.output_function = output_function
+
+        # From BasisCollection
+        self.soln_basis.add_declarations(self)
+        self.geo_basis.add_declarations(self)
+        if self.data_basis is not None:
+            self.data_basis.add_declarations(self)
+
+        # add the output declarations, assuming scalar functions
+        self.output_basis.add_declarations(self)
+
+        # Set the arguments to the compute function for each quadrature point
+        args = []
+        for n in range(len(self.output_basis.basis[0].layout.pts)):
+            args.append({"n": n})
+        self.set_args(args)
+
+        return
+
+    def compute_output(self, n=None):
+        point = self.output_basis.basis[0].layout.pts[n]
+
+        # Evaluate the solution fields/data fields (u)
+        soln_xi = self.soln_basis.eval(self, point)
+        data_xi = None
+        if self.data_basis is not None:
+            data_xi = self.data_basis.eval(self, point)
+        geo = self.geo_basis.eval(self, point)
+
+        # Perform the mapping from computational to physical coordinates (u)
+        detJ, J, Jinv = self.geo_basis.compute_transform(geo)
+        soln_phys = self.soln_basis.transform(detJ, J, Jinv, soln_xi)
+        data_phys = None
+        if self.data_basis is not None:
+            data_phys = self.data_basis.transform(detJ, J, Jinv, data_xi)
+
+        # Add the contributions directly to the Lagrangian
+        outputs = self.output_function(soln_phys, data=data_phys, geo=geo)
+
+        for name in outputs:
+            self.outputs[f"{name}{n}"] = outputs[name]
+
+        return
+
+
 @dataclass
 class MITCStrainComponent:
     value: Expr | None = None

@@ -400,35 +400,45 @@ class DegreesOfFreedom:
                 for data_name in names:
 
                     domain_names = self.mesh.get_domain_names()
-                    input_names, data_names, con_names = [], [], []
+                    input_names, data_names = [], []
+                    con_names, output_names = [], []
                     if "input" in self.kind:
                         input_names = domain_names
                     if "data" in self.kind:
                         data_names = domain_names
                     if "multiplier" in self.kind:
                         con_names = [f"res_{name}" for name in domain_names]
+                    if "output" in self.kind:
+                        output_names = domain_names
 
                     dof_src = DofSource(
                         input_names=input_names,
                         con_names=con_names,
                         data_names=data_names,
+                        output_names=output_names,
                     )
                     sub_model.add_component(data_name, 1, dof_src)
 
                 sub_model_name = comp_name
                 model.add_model(sub_model_name, sub_model)
             else:
-                input_names, data_names, con_names = [], [], []
+                input_names, data_names = [], []
+                con_names, output_names = [], []
                 if "input" in self.kind:
                     input_names = names
                 if "data" in self.kind:
                     data_names = names
                 if "multiplier" in self.kind:
                     con_names = [f"res_{name}" for name in names]
+                if "output" in self.kind:
+                    output_names = names
 
                 # Create the source component
                 dof_src = DofSource(
-                    input_names=input_names, con_names=con_names, data_names=data_names
+                    input_names=input_names,
+                    con_names=con_names,
+                    data_names=data_names,
+                    output_names=output_names,
                 )
 
                 # Get the number of degrees of freedom associated with the
@@ -490,6 +500,15 @@ class DegreesOfFreedom:
                                 f"{elem_name}.{name}",
                                 src_indices=conn,
                             )
+                if "output" in self.kind:
+                    if space.func_space == Space.H1:
+                        for name in names:
+                            for dim in range(conn.shape[1]):
+                                model.link(
+                                    f"{comp_name}.{name}",
+                                    f"{elem_name}.{name}{dim}",
+                                    src_indices=conn[:, dim],
+                                )
 
         return
 

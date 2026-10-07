@@ -410,6 +410,8 @@ class ObjectiveSet:
     def __getitem__(self, name):
         if name not in self.obj:
             raise KeyError(f"{name} not the declared objective")
+        if self.arg_index not in self.obj[name]:
+            return None
         return self.obj[name].expr[self.arg_index]
 
     def get_meta(self, name):
@@ -490,6 +492,8 @@ class OutputSet:
     def __getitem__(self, name):
         if name not in self.outputs:
             raise KeyError(f"{name} not the declared outputs")
+        if self.arg_index not in self.outputs[name].expr:
+            return None
         return self.outputs[name].expr[self.arg_index]
 
     def get_shape(self, name):
