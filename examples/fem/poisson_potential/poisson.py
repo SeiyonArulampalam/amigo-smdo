@@ -43,7 +43,7 @@ problem = Problem(
 )
 
 # Create the finite-element module
-model = problem.create_model("bc_module")
+model = problem.create_model("poisson")
 
 # Build the model
 if args.build:
