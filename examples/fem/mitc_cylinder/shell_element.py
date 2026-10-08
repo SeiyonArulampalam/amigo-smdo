@@ -1,28 +1,34 @@
 import numpy as np
 import amigo as am
-from amigo.fem import MITCTyingStrain
+from amigo.fem import (
+    MITCTyingStrain,
+    MITCStrainComponent,
+    H1Value,
+    FunctionSpace,
+    Space,
+    dot_product,
+)
 from amigo.fem.basis import QuadLagrangeBasis
-from amigo.fem.basis import dot_product, eval_2d_monomials, eval_2d_monomial_grad
 
 
 class NaturalShellGeoBasis(QuadLagrangeBasis):
     """Shell Geometry Basis --> Computes Jacobian"""
 
-    def __init__(self, degree, names, kind="data"):
-        super().__init__(degree, names, kind=kind)
+    def __init__(self, names, space, kind="data"):
+        super().__init__(names, space, kind=kind)
 
     def compute_transform(self, geo):
-        x1, x2 = geo["x"]["grad"]
-        y1, y2 = geo["y"]["grad"]
-        z1, z2 = geo["z"]["grad"]
+        x1, x2 = geo["x"].grad
+        y1, y2 = geo["y"].grad
+        z1, z2 = geo["z"].grad
 
-        nx0 = geo["nx"]["value"]
-        ny0 = geo["ny"]["value"]
-        nz0 = geo["nz"]["value"]
+        nx0 = geo["nx"].value
+        ny0 = geo["ny"].value
+        nz0 = geo["nz"].value
 
-        nx1, nx2 = geo["nx"]["grad"]
-        ny1, ny2 = geo["ny"]["grad"]
-        nz1, nz2 = geo["nz"]["grad"]
+        nx1, nx2 = geo["nx"].grad
+        ny1, ny2 = geo["ny"].grad
+        nz1, nz2 = geo["nz"].grad
 
         # Compute the normalized direction from the interpolation of the
         # nodal normal vectors. This is used to compute the transformation
@@ -123,26 +129,25 @@ class NaturalShellGeoBasis(QuadLagrangeBasis):
         # To transform derivatives into the local coordinates
         Jdict = {"Jinv": Jinv, "zJinv": zJinv, "J33": n0_inv, "T": T}
 
-        return detJ, Jdict
+        Jinv = None
+        return detJ, Jdict, Jinv
 
 
 class ShellSolnBasis(QuadLagrangeBasis):
-    def __init__(self, degree, kind="input"):
+    def __init__(self, kind: str = "input"):
         names = ["u", "v", "w", "rx", "ry", "rz"]
-        super().__init__(degree, names, kind=kind)
+        space = FunctionSpace(func_space=Space.H1, degree=1)
+        super().__init__(names, space, kind=kind)
 
     def eval(self, comp, pt):
         xi = pt[0]
         eta = pt[1]
 
         # Evaluate the monomials
-        m = eval_2d_monomials(self.p, xi, eta, self.exps)
-        N = m @ self.C
+        N = self.vand.eval_basis(xi, eta)
 
         # Evaluate the derivatives of the monomials
-        mgrad = eval_2d_monomial_grad(self.p, xi, eta, self.exps)
-        Nxi = mgrad[:, 0] @ self.C
-        Neta = mgrad[:, 1] @ self.C
+        Nxi, Neta = self.vand.eval_basis_grad(xi, eta)
 
         # Get the rotations at the nodes
         ry = comp.inputs["ry"]
@@ -155,10 +160,11 @@ class ShellSolnBasis(QuadLagrangeBasis):
         nz = comp.data["nz"]
 
         # Set up dx, dy, dz to interpolate the directors from the nodes
-        dx = [None] * self.nnodes
-        dy = [None] * self.nnodes
-        dz = [None] * self.nnodes
-        for i in range(self.nnodes):
+        nnodes = 4
+        dx = [None] * nnodes
+        dy = [None] * nnodes
+        dz = [None] * nnodes
+        for i in range(nnodes):
             dx[i] = ry[i] * nz[i] - rz[i] * ny[i]
             dy[i] = rz[i] * nx[i] - rx[i] * nz[i]
             dz[i] = rx[i] * ny[i] - ry[i] * nx[i]
@@ -172,26 +178,20 @@ class ShellSolnBasis(QuadLagrangeBasis):
             elif self.kind == "multiplier":
                 u = comp.constraints.get_multipliers()[f"res_{name}"]
 
-            soln[name] = {
-                "value": dot_product(u, N, n=self.nnodes),
-                "grad": [
-                    dot_product(u, Nxi, n=self.nnodes),
-                    dot_product(u, Neta, n=self.nnodes),
-                ],
-            }
+            soln[name] = H1Value(
+                value=dot_product(u, N, n=nnodes),
+                grad=[dot_product(u, Nxi, n=nnodes), dot_product(u, Neta, n=nnodes)],
+            )
 
         for name, u in zip(["dx", "dy", "dz"], [dx, dy, dz]):
-            soln[name] = {
-                "value": dot_product(u, N, n=self.nnodes),
-                "grad": [
-                    dot_product(u, Nxi, n=self.nnodes),
-                    dot_product(u, Neta, n=self.nnodes),
-                ],
-            }
+            soln[name] = H1Value(
+                value=dot_product(u, N, n=nnodes),
+                grad=[dot_product(u, Nxi, n=nnodes), dot_product(u, Neta, n=nnodes)],
+            )
 
         return soln
 
-    def transform(self, detJ, Jdict, orig):
+    def transform(self, detJ, Jdict, Jinv, orig):
         # Get the transformation information
         Jinv = Jdict["Jinv"]
         zJinv = Jdict["zJinv"]
@@ -200,26 +200,17 @@ class ShellSolnBasis(QuadLagrangeBasis):
         # Compute the the values
         soln = {}
 
-        # The interpolated values from the solution field
-        soln["u"] = {"value": orig["u"]["value"]}
-        soln["v"] = {"value": orig["v"]["value"]}
-        soln["w"] = {"value": orig["w"]["value"]}
+        u1, u2 = orig["u"].grad
+        v1, v2 = orig["v"].grad
+        w1, w2 = orig["w"].grad
 
-        soln["rx"] = {"value": orig["rx"]["value"]}
-        soln["ry"] = {"value": orig["ry"]["value"]}
-        soln["rz"] = {"value": orig["rz"]["value"]}
+        dx = orig["dx"].value
+        dy = orig["dy"].value
+        dz = orig["dz"].value
 
-        u1, u2 = orig["u"]["grad"]
-        v1, v2 = orig["v"]["grad"]
-        w1, w2 = orig["w"]["grad"]
-
-        dx = orig["dx"]["value"]
-        dy = orig["dy"]["value"]
-        dz = orig["dz"]["value"]
-
-        dx1, dx2 = orig["dx"]["grad"]
-        dy1, dy2 = orig["dy"]["grad"]
-        dz1, dz2 = orig["dz"]["grad"]
+        dx1, dx2 = orig["dx"].grad
+        dy1, dy2 = orig["dy"].grad
+        dz1, dz2 = orig["dz"].grad
 
         # Compute c = T^{T} * [d,1  d,2  0]
         c11 = T[0][0] * dx1 + T[1][0] * dy1 + T[2][0] * dz1
@@ -263,10 +254,19 @@ class ShellSolnBasis(QuadLagrangeBasis):
 
             return [r1, r2]
 
+        # The interpolated values from the solution field
+        soln["u"] = H1Value(value=orig["u"].value)
+        soln["v"] = H1Value(value=orig["v"].value)
+        soln["w"] = H1Value(value=orig["w"].value)
+
+        soln["rx"] = H1Value(value=orig["rx"].value)
+        soln["ry"] = H1Value(value=orig["ry"].value)
+        soln["rz"] = H1Value(value=orig["rz"].value)
+
         # Compute c * Jinv - b * zJinv
-        soln["u1"] = {"grad": row_transform(c11, c12, b11, b12, b13)}
-        soln["v1"] = {"grad": row_transform(c21, c22, b21, b22, b23)}
-        soln["w1"] = {"grad": row_transform(c31, c32, b31, b32, b33)}
+        soln["u1"] = H1Value(grad=row_transform(c11, c12, b11, b12, b13))
+        soln["v1"] = H1Value(grad=row_transform(c21, c22, b21, b22, b23))
+        soln["w1"] = H1Value(grad=row_transform(c31, c32, b31, b32, b33))
 
         return soln
 
@@ -310,21 +310,21 @@ class MITC4ShellTying(MITCTyingStrain):
             return [(-1, 0), (1, 0)][idx - offset]
 
     def eval_tying_strain(self, idx, geo, soln):
-        nx0 = geo["nx"]["value"]
-        ny0 = geo["ny"]["value"]
-        nz0 = geo["nz"]["value"]
+        nx0 = geo["nx"].value
+        ny0 = geo["ny"].value
+        nz0 = geo["nz"].value
 
-        x1, x2 = geo["x"]["grad"]
-        y1, y2 = geo["y"]["grad"]
-        z1, z2 = geo["z"]["grad"]
+        x1, x2 = geo["x"].grad
+        y1, y2 = geo["y"].grad
+        z1, z2 = geo["z"].grad
 
-        dx = soln["dx"]["value"]
-        dy = soln["dy"]["value"]
-        dz = soln["dz"]["value"]
+        dx = soln["dx"].value
+        dy = soln["dy"].value
+        dz = soln["dz"].value
 
-        u1, u2 = soln["u"]["grad"]
-        v1, v2 = soln["v"]["grad"]
-        w1, w2 = soln["w"]["grad"]
+        u1, u2 = soln["u"].grad
+        v1, v2 = soln["v"].grad
+        w1, w2 = soln["w"].grad
 
         field, _ = self._get_tying_field_and_offset(idx)
 
@@ -353,7 +353,7 @@ class MITC4ShellTying(MITCTyingStrain):
             )
             return g13
 
-    def interp_and_transform(self, pt, Jdict, e):
+    def interp_and_transform(self, pt, detJ, Jdict, Jinv, e):
         # Interpolate the tensorial components of the tying strains
         g11 = 0.5 * ((1.0 - pt[1]) * e[0] + (1.0 + pt[1]) * e[1])
         g22 = 0.5 * ((1.0 - pt[0]) * e[2] + (1.0 + pt[0]) * e[3])
@@ -387,45 +387,45 @@ class MITC4ShellTying(MITCTyingStrain):
         gyz = 2.0 * J33 * (J12 * g13 + J22 * g23)
 
         out = {}
-        out["ex"] = {"value": ex}
-        out["ey"] = {"value": ey}
-        out["gxy"] = {"value": gxy}
+        out["ex"] = MITCStrainComponent(value=ex)
+        out["ey"] = MITCStrainComponent(value=ey)
+        out["gxy"] = MITCStrainComponent(value=gxy)
 
-        out["gxz"] = {"value": gxz}
-        out["gyz"] = {"value": gyz}
+        out["gxz"] = MITCStrainComponent(value=gxz)
+        out["gyz"] = MITCStrainComponent(value=gyz)
 
         return out
 
 
 def integrand(soln, data=None, geo=None):
-    x = geo["x"]["value"]
-    y = geo["y"]["value"]
-    z = geo["z"]["value"]
+    x = geo["x"].value
+    y = geo["y"].value
+    z = geo["z"].value
 
-    nx0 = geo["nx"]["value"]
-    ny0 = geo["ny"]["value"]
-    nz0 = geo["nz"]["value"]
+    nx0 = geo["nx"].value
+    ny0 = geo["ny"].value
+    nz0 = geo["nz"].value
 
-    rx = soln["rx"]["value"]
-    ry = soln["ry"]["value"]
-    rz = soln["rz"]["value"]
+    rx = soln["rx"].value
+    ry = soln["ry"].value
+    rz = soln["rz"].value
 
-    u = soln["u"]["value"]
-    v = soln["v"]["value"]
-    w = soln["w"]["value"]
+    u = soln["u"].value
+    v = soln["v"].value
+    w = soln["w"].value
 
     # Gradients for the bending terms
-    u1x, u1y = soln["u1"]["grad"]
-    v1x, v1y = soln["v1"]["grad"]
+    u1x, u1y = soln["u1"].grad
+    v1x, v1y = soln["v1"].grad
 
     # In-plane strains from MITC interpolation
-    ex = soln["ex"]["value"]
-    ey = soln["ey"]["value"]
-    gxy = soln["gxy"]["value"]
+    ex = soln["ex"].value
+    ey = soln["ey"].value
+    gxy = soln["gxy"].value
 
     # Shear strains from MITC interpolation
-    gxz = soln["gxz"]["value"]
-    gyz = soln["gyz"]["value"]
+    gxz = soln["gxz"].value
+    gyz = soln["gyz"].value
 
     kx = u1x
     ky = v1y

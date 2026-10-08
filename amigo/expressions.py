@@ -458,13 +458,13 @@ class ExprBuilder:
         self.expr_to_id = {}
 
         # Serialize the constants, data, inputs and vars
-        self.const_list = [self._serialize_expr(c) for c in self.consts]
-        self.data_list = [self._serialize_expr(d) for d in self.data]
-        self.input_list = [self._serialize_expr(x) for x in self.inputs]
-        self.var_list = [self._serialize_expr(v) for v in self.vars]
+        self.const_list = self._serialize_list(self.consts)
+        self.data_list = self._serialize_list(self.data)
+        self.input_list = self._serialize_list(self.inputs)
+        self.var_list = self._serialize_list(self.vars)
 
         # Serialize the expressions
-        self.rhs_list = [self._serialize_expr(e) for e in self.rhs]
+        self.rhs_list = self._serialize_list(self.rhs)
 
         self.counts = [0] * len(self.nodes)
         self.node_exprs = [None] * len(self.nodes)
@@ -520,9 +520,21 @@ class ExprBuilder:
         # Set the new expressions
         self.new_rhs = []
         for idx in self.rhs_list:
-            self.new_rhs.append(self._build_expr(idx))
+            if idx is None:
+                self.new_rhs.append(None)
+            else:
+                self.new_rhs.append(self._build_expr(idx))
 
         return
+
+    def _serialize_list(self, expr_list):
+        new_list = []
+        for expr in expr_list:
+            if expr is None:
+                new_list.append(None)
+            else:
+                new_list.append(self._serialize_expr(expr))
+        return new_list
 
     def _serialize_expr(self, e: Expr):
         # Fast path: same Expr object already seen
@@ -773,6 +785,9 @@ class ExprBuilder:
 
         # Add the new expressions
         for lhs, rhs in zip(self.lhs, self.new_rhs):
-            active.append(make_active(lhs.to_cpp(), rhs.to_cpp()))
+            if rhs is not None:
+                active.append(make_active(lhs.to_cpp(), rhs.to_cpp()))
+            else:
+                active.append(make_active(lhs.to_cpp(), f"{template_name}(0.0)"))
 
         return decl, passive, active

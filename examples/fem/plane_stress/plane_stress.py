@@ -1,6 +1,13 @@
-from amigo.fem import Mesh, Problem, SolutionSpace
+from amigo.fem import (
+    Mesh,
+    Problem,
+    CellType,
+    Space,
+    FunctionSpace,
+    SolutionSpace,
+    build_grid,
+)
 import amigo as am
-from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
@@ -9,8 +16,8 @@ import argparse
 def potential_plane_stress(soln, data=None, geo=None):
     """Strain energy density (integrand of TPE equation)"""
     # Displacement gradients in physical space
-    u_grad = soln["u"]["grad"]
-    v_grad = soln["v"]["grad"]
+    u_grad = soln["u"].grad
+    v_grad = soln["v"].grad
 
     # Strain components
     exx = u_grad[0]
@@ -31,8 +38,8 @@ def potential_plane_stress(soln, data=None, geo=None):
 
 def potential_traction(soln, data=None, geo=None):
     """External Work Line integral integrand"""
-    u = soln["u"]["value"]
-    v = soln["v"]["value"]
+    u = soln["u"].value
+    v = soln["v"].value
     # traction force for element
     # W = uT t
     tx = 0
@@ -43,9 +50,10 @@ def potential_traction(soln, data=None, geo=None):
 
 
 # Two displacement DOFs per node
-soln_space = SolutionSpace({"u": "H1", "v": "H1"})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
-data_space = SolutionSpace({})  # empty for now
+H1 = FunctionSpace(func_space=Space.H1, degree=1)
+soln_space = SolutionSpace({"soln": {("u", "v"): H1}})
+geo_space = SolutionSpace({"geo": {("x", "y"): H1}})
+data_space = SolutionSpace({})
 
 integrand_map = {
     "plane_stress": {
@@ -66,21 +74,18 @@ bc_map = {
     },
 }
 
-
-mesh = Mesh("plate.inp")
-
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--build", dest="build", action="store_true", default=False, help="Enable building"
 )
-
 args = parser.parse_args()
 
+mesh = Mesh("plate.inp")
 problem = Problem(
     mesh,
     soln_space,
-    data_space,
     geo_space,
+    data_space,
     integrand_map=integrand_map,
     bc_map=bc_map,
 )
@@ -103,21 +108,16 @@ model.eval_hessian(x, mat)
 
 # Solve the equations
 print("Solving...")
-chol = am.SparseLDL(mat, ustab=0.1, solver_type=am.SolverType.CHOLESKY)
+chol = am.SparseLDL(mat, solver_type=am.SolverType.CHOLESKY)
 flag = chol.factor()
 
 # Solve the equations
 x[:] = g[:]
 chol.solve(x.get_vector())
 
-print("Plotting...")
-
-# Extract displacement fields
 u = x["soln.u"]
 v = x["soln.v"]
 
-fig, ax = plt.subplots(nrows=2)
-mesh.plot(u, ax=ax[0])
-mesh.plot(v, ax=ax[1])
-
-plt.show()
+# Plot the solution
+grid = build_grid(problem, "u", x)
+grid.plot(scalars="u", cmap="coolwarm", show_edges=True)
