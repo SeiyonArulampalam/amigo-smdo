@@ -1,20 +1,21 @@
 import argparse
 import amigo as am
 import numpy as np
-from amigo.fem import SolutionSpace, Mesh, Problem
+from amigo.fem import SolutionSpace, Mesh, Problem, FunctionSpace, Space
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
+from amigo.fem.visualization import build_grid
 
 
 def integrand(test, soln, data=None, geo=None):
-    v = test["u"]["value"]
-    vx = test["u"]["grad"]
+    v = test["u"].value
+    vx = test["u"].grad
 
-    u = soln["u"]["value"]
-    ux = soln["u"]["grad"]
+    u = soln["u"].value
+    ux = soln["u"].grad
 
-    x = geo["x"]["value"]
-    y = geo["y"]["value"]
+    x = geo["x"].value
+    y = geo["y"].value
 
     f = -2 * np.pi**2 * am.sin(np.pi * (x + 0.5)) * am.sin(np.pi * (y + 0.5))
 
@@ -28,9 +29,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-soln_space = SolutionSpace({"u": "H1"})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
-data_space = SolutionSpace({})
+soln_space = SolutionSpace({"soln": {"u": "H1"}}, degree=1)
+geo_space = SolutionSpace({"geo": {("x", "y"): "H1"}}, degree=1)
 
 integrand_map = {
     "domain": {
@@ -47,12 +47,12 @@ bc_map = {
 }
 
 # Load the plate
-mesh = Mesh("../mitc_plate/plate.inp")
+# mesh = Mesh("plate.inp")
+mesh = Mesh("plate.inp")
 
 problem = Problem(
     mesh,
     soln_space,
-    data_space,
     geo_space,
     integrand_map=integrand_map,
     integrand_formulation="weak",
@@ -86,8 +86,6 @@ ypts = data["geo.y"]
 u = x["soln.u"]
 u_exact = np.sin(np.pi * (xpts + 0.5)) * np.sin(np.pi * (ypts + 0.5))
 
-print(np.max(np.absolute(u - u_exact)) / np.max(u_exact))
-fig, ax = plt.subplots(1, 2, figsize=(8, 3))
-mesh.plot(u, ax=ax[0])
-mesh.plot(u_exact, ax=ax[1])
-plt.show()
+# print(np.max(np.absolute(u - u_exact)) / np.max(u_exact))
+grid = build_grid(problem, "u", x)
+grid.plot(scalars="u", cmap="coolwarm", show_edges=True)

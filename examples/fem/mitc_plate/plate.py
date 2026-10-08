@@ -1,6 +1,17 @@
 import argparse
 import amigo as am
-from amigo.fem import MITCTyingStrain, MITCElement, SolutionSpace, Mesh, Problem
+from amigo.fem import (
+    MITCTyingStrain,
+    MITCElement,
+    MITCStrainComponent,
+    SolutionSpace,
+    Mesh,
+    Problem,
+    CellType,
+    make_basis,
+    make_quadrature,
+    build_grid,
+)
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 import time
@@ -15,18 +26,15 @@ class MITC4PlateTying(MITCTyingStrain):
         return self.tying_points
 
     def eval_tying_strain(self, idx, geo, soln):
-        tx = soln["tx"]["value"]
-        ty = soln["ty"]["value"]
+        tx = soln["tx"].value
+        ty = soln["ty"].value
 
         # Get the derivatives in the computational coordinates
-        w_1 = soln["w"]["grad"][0]
-        w_2 = soln["w"]["grad"][1]
+        w_1, w_2 = soln["w"].grad
 
         # Derivatives wrt computational coordinates
-        x_1 = geo["x"]["grad"][0]
-        y_1 = geo["y"]["grad"][0]
-        x_2 = geo["x"]["grad"][1]
-        y_2 = geo["y"]["grad"][1]
+        x_1, x_2 = geo["x"].grad
+        y_1, y_2 = geo["y"].grad
 
         if idx < 2:
             g23 = w_2 + tx * x_2 + ty * y_2
@@ -37,7 +45,7 @@ class MITC4PlateTying(MITCTyingStrain):
 
         raise ValueError("Tying point index out of range")
 
-    def interp_and_transform(self, pt, Jinv, e):
+    def interp_and_transform(self, pt, detJ, J, Jinv, e):
         # Interpolate the tensorial components of the tying strains
         g23 = 0.5 * ((1.0 - pt[0]) * e[0] + (1.0 + pt[0]) * e[1])
         g13 = 0.5 * ((1.0 - pt[1]) * e[2] + (1.0 + pt[1]) * e[3])
@@ -47,8 +55,8 @@ class MITC4PlateTying(MITCTyingStrain):
 
         # Convert from tensorial to real strain
         out = {}
-        out["gxz"] = {"value": gxz}
-        out["gyz"] = {"value": gyz}
+        out["gxz"] = MITCStrainComponent(value=gxz)
+        out["gyz"] = MITCStrainComponent(value=gyz)
 
         return out
 
@@ -63,11 +71,11 @@ def integrand(soln, data=None, geo=None):
     ks = 5.0 / 6.0  # Shear correction factor
     D = (E * t**3) / (12 * (1 - nu**2))  # Bending stiffness
 
-    tx_grad = soln["tx"]["grad"]
-    ty_grad = soln["ty"]["grad"]
-    w_val = soln["w"]["value"]
-    gxz = soln["gxz"]["value"]
-    gyz = soln["gyz"]["value"]
+    tx_grad = soln["tx"].grad
+    ty_grad = soln["ty"].grad
+    w_val = soln["w"].value
+    gxz = soln["gxz"].value
+    gyz = soln["gyz"].value
 
     # components of kappa vector
     kxx = tx_grad[0]
@@ -98,9 +106,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Create the solution spaces
-soln_space = SolutionSpace({"w": "H1", "tx": "H1", "ty": "H1"})
-geo_space = SolutionSpace({"x": "H1", "y": "H1"})
-data_space = SolutionSpace({})
+soln_space = SolutionSpace({"soln": {("w", "tx", "ty"): "H1"}})
+geo_space = SolutionSpace({"geo": {("x", "y"): "H1"}})
 
 integrand_map = {
     "plate": {
@@ -120,11 +127,11 @@ bc_map = {
 mesh = Mesh("plate.inp")
 
 # Get the basis and quadrature objects needed for the element
-etype = "CPS4"
-soln_basis = mesh.get_basis(soln_space, etype, kind="input")
-geo_basis = mesh.get_basis(geo_space, etype, kind="data")
-data_basis = mesh.get_basis(data_space, etype, kind="data")
-quadrature = mesh.get_quadrature(etype)
+ctype = CellType.QUADRILATERAL
+soln_basis = make_basis(soln_space, ctype, kind="input")
+geo_basis = make_basis(geo_space, ctype, kind="data")
+data_basis = None
+quadrature = make_quadrature(soln_space, ctype)
 mitc = MITC4PlateTying()
 
 # Create the MITC4 element
@@ -133,13 +140,12 @@ quad_elem = MITCElement(
 )
 
 # Set the element objects
-element_objs = {("plate", etype): quad_elem}
+element_objs = {("plate", ctype): quad_elem}
 
 # Create the finite element problem
 problem = Problem(
     mesh,
     soln_space,
-    data_space,
     geo_space,
     integrand_map=integrand_map,
     bc_map=bc_map,
@@ -242,13 +248,5 @@ else:
 print(f"Factor time... {tfactor:.6f} seconds")
 
 print("Plotting...")
-w = x["soln.w"]
-tx = x["soln.tx"]
-ty = x["soln.ty"]
-
-fig, ax = plt.subplots(1, 3, figsize=(8, 3))
-for index, soln in enumerate([w, tx, ty]):
-    mesh.plot(soln, ax=ax[index])
-
-plt.savefig("plate_solution.png")
-plt.show()
+grid = build_grid(problem, "w", x)
+grid.plot(scalars="w", cmap="coolwarm", show_edges=True)
