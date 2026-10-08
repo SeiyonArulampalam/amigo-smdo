@@ -410,7 +410,7 @@ class ObjectiveSet:
     def __getitem__(self, name):
         if name not in self.obj:
             raise KeyError(f"{name} not the declared objective")
-        if self.arg_index not in self.obj[name]:
+        if self.arg_index not in self.obj[name].expr:
             return None
         return self.obj[name].expr[self.arg_index]
 
